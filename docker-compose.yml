@@ -1,0 +1,43 @@
+# docker-compose для разработки и передачи на офисный сервер.
+# Для разработки достаточно поднять сервис `db`: npm run db:up
+# Сервис `app` собирается для деплоя (npm run build → standalone).
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: bt_payments_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-bt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bt_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-bt_payments}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - bt_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-bt} -d ${POSTGRES_DB:-bt_payments}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Сервис приложения — для деплоя. В dev запускаем `npm run dev` на хосте.
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bt_payments_app
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-bt}:${POSTGRES_PASSWORD:-bt_dev_password}@db:5432/${POSTGRES_DB:-bt_payments}?schema=public
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    profiles:
+      - deploy # не поднимается в dev; `docker compose --profile deploy up`
+
+volumes:
+  bt_pgdata:

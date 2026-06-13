@@ -1,0 +1,52 @@
+import Link from "next/link";
+import { requireRole } from "@/lib/auth/rbac";
+import { getDepositsReserves } from "@/lib/accounting/queries";
+import { formatTiyn } from "@/lib/money";
+import { LEDGER_LABELS } from "@/lib/accounting/labels";
+
+export default async function DepositsPage() {
+  await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const ledgers = await getDepositsReserves();
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <Link href="/accounting" className="text-sm text-gray-500 hover:underline">← Учёт</Link>
+        <h1 className="mt-1 text-xl font-semibold text-gray-900">Депозиты и резервы</h1>
+        <p className="text-sm text-gray-500">Остаток себестоимости не схлопывается в маржу, а сохраняется под будущие нужды.</p>
+      </div>
+
+      {ledgers.map((l) => (
+        <section key={l.id} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+          <div className="flex items-center justify-between bg-gray-50 px-4 py-3">
+            <span className="text-sm font-semibold text-gray-800">{LEDGER_LABELS[l.kind]}</span>
+            <span className={`text-base font-semibold ${l.balance < 0n ? "text-red-600" : "text-gray-900"}`}>Остаток: {formatTiyn(l.balance)}</span>
+          </div>
+          {l.movements.length === 0 ? (
+            <p className="px-4 py-6 text-center text-sm text-gray-400">Пока нет движений.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="text-left text-xs uppercase text-gray-500">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Дата</th>
+                  <th className="px-4 py-2 font-medium">Проект / описание</th>
+                  <th className="px-4 py-2 text-right font-medium">Сумма</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {l.movements.map((m) => (
+                  <tr key={m.id}>
+                    <td className="px-4 py-2 text-gray-500">{m.occurredAt.toLocaleDateString("ru-RU")}</td>
+                    <td className="px-4 py-2 text-gray-700">{m.project?.name ?? "—"}{m.description ? ` · ${m.description}` : ""}</td>
+                    <td className={`px-4 py-2 text-right font-medium ${m.amount < 0n ? "text-red-600" : "text-green-700"}`}>{formatTiyn(m.amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      ))}
+      <p className="text-xs text-gray-400">Приток («+») пополняет копилку, отток («−») расходует. Видно, где получено-но-не-потрачено и наоборот.</p>
+    </div>
+  );
+}

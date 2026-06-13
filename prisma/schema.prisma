@@ -1,0 +1,786 @@
+// Brave Talents — Prisma schema
+// Источники правды: CLAUDE.md (ТЗ) + DECISIONS.md (архитектурные решения).
+//
+// Принципы (CLAUDE.md §2, DECISIONS.md §9):
+//   * Все денежные суммы — BigInt в тиынах (1 тенге = 100 тиын). Никогда float.
+//   * entityId во всех ключевых таблицах — мультиарендность на будущее.
+//   * Авторизация абстрагирована (credentials сейчас, SSO потом).
+//   * Конфиденциальность — на уровне запросов (поля scope: departmentId / ownerUserId).
+//   * Каждое значимое изменение — в AuditLog (кто, когда, что, причина).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================================
+//  МУЛЬТИАРЕНДНОСТЬ И ОРГСТРУКТУРА
+// ============================================================================
+
+// Юрлицо/компания. Старт — только Brave Talents, но всё привязано к entityId,
+// чтобы позже подключить другие entities Brave Group без миграции схемы.
+model Entity {
+  id        String   @id @default(cuid())
+  name      String
+  bin       String? // БИН/ИИН юрлица
+  createdAt DateTime @default(now())
+
+  users           User[]
+  departments     Department[]
+  accounts        Account[]
+  clients         Client[]
+  projects        Project[]
+  ledgers         Ledger[]
+  expenseTypes    ExpenseType[]
+  approvalRoutes  ApprovalRoute[]
+  paymentRequests PaymentRequest[]
+  estimates       Estimate[]
+  incomings       Incoming[]
+  transactions    Transaction[]
+  budgetPeriods   BudgetPeriod[]
+  payoutRegisters PayoutRegister[]
+  bankImports     BankStatementImport[]
+  auditLogs       AuditLog[]
+
+  @@map("entities")
+}
+
+// Блок/департамент — единица конфиденциальности. Согласующий видит заявки и
+// балансы ТОЛЬКО своего блока (CLAUDE.md §10). Напр.: блогерский блок, ком-блок,
+// креатив, продакшн, бухгалтерия, офис.
+model Department {
+  id       String @id @default(cuid())
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+  name     String
+  code     String // напр. "BLOGGERS", "COMMERCIAL", "CREATIVE", "PRODUCTION"
+
+  users        User[]
+  projects     Project[]
+  expenseTypes ExpenseType[]
+
+  @@unique([entityId, code])
+  @@map("departments")
+}
+
+// ============================================================================
+//  ПОЛЬЗОВАТЕЛИ, РОЛИ, АВТОРИЗАЦИЯ (CLAUDE.md §10)
+// ============================================================================
+
+enum AuthProvider {
+  CREDENTIALS // MVP: логин/пароль
+  SSO // на будущее: Google Workspace / Microsoft Entra
+}
+
+// Системные роли. У пользователя может быть НЕСКОЛЬКО ролей (двойные роли:
+// Айнур — согласующий + коллегия; Жадыра — гл.бух + коллегия).
+enum RoleName {
+  REQUESTER // Заявитель
+  APPROVER // Согласующий
+  TREASURER_CFO // Казначей / CFO (видит всё)
+  ACCOUNTANT // Бухгалтер (ставит «оплачено», ведёт ЗП)
+  CHIEF_ACCOUNTANT // Гл. бухгалтер (согласует ЗП/дивиденды, коллегия)
+  TREASURY_BOARD // Член казначейской коллегии (решение при дефиците)
+  ADMIN // Админ (маршруты, виды расходов, пользователи)
+}
+
+model User {
+  id           String       @id @default(cuid())
+  entityId     String
+  entity       Entity       @relation(fields: [entityId], references: [id])
+  email        String       @unique
+  fullName     String
+  position     String? // должность из справочника §13
+  departmentId String?
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  authProvider AuthProvider @default(CREDENTIALS)
+  passwordHash String? // null при SSO
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+
+  roles                UserRole[]
+  sessions             Session[]
+  createdRequests      PaymentRequest[]  @relation("RequestCreatedBy")
+  approvals            RequestApproval[]
+  approvalSteps        ApprovalStep[] // шаги маршрута, где этот юзер — согласующий
+  ownedProjects        Project[]         @relation("ProjectOwner")
+  responsibleIncomings Incoming[]        @relation("IncomingResponsible")
+  auditLogs            AuditLog[]
+  estimateChanges      EstimateVersion[]
+
+  @@map("users")
+}
+
+model UserRole {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   RoleName
+
+  @@unique([userId, role])
+  @@map("user_roles")
+}
+
+// Сессии для credentials-авторизации. Абстракция позволяет позже добавить SSO,
+// не трогая этот слой (токен сессии живёт одинаково).
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+// ============================================================================
+//  ПЛАН СЧЕТОВ (CLAUDE.md §3)
+// ============================================================================
+
+enum AccountKind {
+  MAIN // 6890 — основной (поступления, маржа, офис, ЗП)
+  PROJECT_COST // 7366 — оборотный счёт себестоимости проектов
+  VAT // 3098 — НДС
+  SPECPROJECT // 0175 — спецпроекты (доход+расход+маржа на одном счёте)
+}
+
+// Счёт компании. Остаток — агрегат по Transaction, отдельным полем не хранится.
+model Account {
+  id       String      @id @default(cuid())
+  entityId String
+  entity   Entity      @relation(fields: [entityId], references: [id])
+  code     String // "6890" | "7366" | "3098" | "0175"
+  name     String
+  kind     AccountKind
+
+  transactions Transaction[]
+  ledgers      Ledger[]
+
+  @@unique([entityId, code])
+  @@map("accounts")
+}
+
+// ============================================================================
+//  ЛЕДЖЕРЫ: ПРОЕКТЫ / ДЕПОЗИТЫ / РЕЗЕРВЫ (DECISIONS.md §7)
+//  Единый балансовый механизм. Отличаются kind и привязкой к счёту.
+// ============================================================================
+
+enum LedgerKind {
+  COST_7366 // проектная себестоимость на 7366 (Клиент→Проект→Получатель)
+  DEPOSIT_INFLUENCE // депозит продакшна (Influence) — внутри свои проекты
+  RESERVE_COMMERCIAL // резерв коммерческого продакшна (Video/Photo)
+  SPECPROJECT_0175 // спецпроекты на 0175
+}
+
+// «Книга» балансов. Депозит/резерв — это Ledger со своими проектами внутри
+// (мини-7366, DECISIONS.md §3, §7). Баланс = агрегат по Transaction/проектам.
+model Ledger {
+  id                String     @id @default(cuid())
+  entityId          String
+  entity            Entity     @relation(fields: [entityId], references: [id])
+  kind              LedgerKind
+  name              String
+  accountId         String
+  account           Account    @relation(fields: [accountId], references: [id])
+  // Схлопывается ли остаток себестоимости в маржу. Для депозитов/резервов — false
+  // (остаток сохраняется под будущие нужды).
+  collapsesToMargin Boolean    @default(true)
+
+  projects Project[]
+
+  @@unique([entityId, kind])
+  @@map("ledgers")
+}
+
+// ============================================================================
+//  ИЕРАРХИЯ УЧЁТА: КЛИЕНТ → ПРОЕКТ → ПОЛУЧАТЕЛЬ (CLAUDE.md §6)
+// ============================================================================
+
+// Услуга определяет состав себестоимости и счёт (CLAUDE.md §4).
+enum ServiceType {
+  INFLUENCE // гонорар блогера + продакшн-бюджет (→ депозит)
+  VIDEO_PHOTO // коммерческая съёмка (остаток → резерв)
+  EVENT // мероприятие
+  SPEC_PROJECT // спецпроект (счёт 0175)
+}
+
+model Client {
+  id       String @id @default(cuid())
+  entityId String
+  entity   Entity @relation(fields: [entityId], references: [id])
+  name     String // напр. «Яндекс Поиск»
+
+  projects Project[]
+
+  @@map("clients")
+}
+
+enum ProjectStatus {
+  ACTIVE
+  CLOSED
+  CANCELLED // проект сокращён/отменён (DECISIONS.md §1.1)
+}
+
+// Проект — единица с балансом. Принадлежит ledger'у (7366/депозит/резерв/0175)
+// и клиенту. У клиента может быть несколько проектов (CLAUDE.md §6).
+model Project {
+  id          String        @id @default(cuid())
+  entityId    String
+  entity      Entity        @relation(fields: [entityId], references: [id])
+  ledgerId    String
+  ledger      Ledger        @relation(fields: [ledgerId], references: [id])
+  clientId    String?
+  client      Client?       @relation(fields: [clientId], references: [id])
+  name        String // напр. «Наурыз», «Техноблогеры», «8 марта»
+  serviceType ServiceType
+  status      ProjectStatus @default(ACTIVE)
+
+  // Конфиденциальность: кто видит проект (владелец + департамент + CFO/бухгалтерия).
+  ownerUserId  String?
+  owner        User?       @relation("ProjectOwner", fields: [ownerUserId], references: [id])
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  recipients      Recipient[]
+  estimate        Estimate? // одна смета на проект (Estimate.projectId @unique)
+  paymentRequests PaymentRequest[]
+  incomings       Incoming[]
+  transactions    Transaction[]
+
+  @@index([entityId, clientId])
+  @@map("projects")
+}
+
+enum RecipientKind {
+  BLOGGER
+  CONTRACTOR
+  VENDOR
+  OTHER
+}
+
+// Получатель внутри проекта (блогер/подрядчик). Это «факт-сторона»: фактические
+// выплаты. Плановая сторона — в EstimateLine, связь по estimateLineId
+// (DECISIONS.md §6).
+model Recipient {
+  id        String        @id @default(cuid())
+  entityId  String
+  projectId String
+  project   Project       @relation(fields: [projectId], references: [id])
+  name      String
+  kind      RecipientKind @default(BLOGGER)
+
+  estimateLines   EstimateLine[]
+  paymentRequests PaymentRequest[]
+  transactions    Transaction[]
+
+  @@index([projectId])
+  @@map("recipients")
+}
+
+// ============================================================================
+//  СМЕТА (DECISIONS.md §1) — первоклассная сущность, версионируется
+// ============================================================================
+
+// Смета проекта. Источник правды для разнесения поступлений и плана себестоимости.
+model Estimate {
+  id        String   @id @default(cuid())
+  entityId  String
+  entity    Entity   @relation(fields: [entityId], references: [id])
+  projectId String   @unique // одна активная смета на проект (история — в версиях)
+  project   Project  @relation(fields: [projectId], references: [id])
+  createdAt DateTime @default(now())
+
+  versions         EstimateVersion[]
+  currentVersionId String?           @unique
+  currentVersion   EstimateVersion?  @relation("CurrentVersion", fields: [currentVersionId], references: [id])
+
+  @@map("estimates")
+}
+
+enum EstimateChangeReason {
+  INITIAL // первичный ввод
+  WRONG_ESTIMATE // менеджер прислал не ту смету (исправление)
+  PROJECT_REDUCED // проект сократили в моменте
+  OTHER
+}
+
+// Версия сметы. Любое изменение создаёт новую версию (аудит: кто/когда/причина),
+// после чего пересчитывается разнос уже полученных поступлений (DECISIONS.md §1.1).
+model EstimateVersion {
+  id         String   @id @default(cuid())
+  estimateId String
+  estimate   Estimate @relation(fields: [estimateId], references: [id])
+  version    Int // 1, 2, 3...
+
+  // Суммы в тиынах (BigInt). Цена клиенту с НДС = clientPriceGross.
+  clientPriceGross BigInt // цена клиенту с НДС
+  clientPriceNet   BigInt // цена клиенту без НДС
+  vatAmount        BigInt // сумма НДС (→ 3098)
+  costAmount       BigInt // плановая себестоимость (→ 7366 / депозит / резерв)
+  marginAmount     BigInt // маржа (остаётся на 6890; для спецпроекта — на 0175)
+  // Доля себестоимости, уходящая в депозит продакшна (Influence) — продакшн-бюджет.
+  depositAmount    BigInt @default(0)
+
+  reason      EstimateChangeReason @default(INITIAL)
+  comment     String?
+  createdById String
+  createdBy   User                 @relation(fields: [createdById], references: [id])
+  createdAt   DateTime             @default(now())
+
+  lines       EstimateLine[]
+  currentOf   Estimate?      @relation("CurrentVersion")
+  allocations Allocation[] // разнесения, посчитанные по этой версии
+
+  @@unique([estimateId, version])
+  @@map("estimate_versions")
+}
+
+enum EstimateLineKind {
+  RECIPIENT // плановая выплата конкретному получателю
+  CATEGORY // категория себестоимости без конкретного получателя
+}
+
+// Строка сметы: плановый получатель/категория и сумма. Заявка ссылается на строку
+// (DECISIONS.md §6) — так считается план-факт по получателю и виден перерасход.
+model EstimateLine {
+  id            String           @id @default(cuid())
+  versionId     String
+  version       EstimateVersion  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  kind          EstimateLineKind @default(RECIPIENT)
+  title         String // имя получателя или название категории
+  plannedAmount BigInt // план, тиыны
+  recipientId   String?
+  recipient     Recipient?       @relation(fields: [recipientId], references: [id])
+
+  paymentRequests PaymentRequest[]
+
+  @@index([versionId])
+  @@map("estimate_lines")
+}
+
+// ============================================================================
+//  ВИДЫ РАСХОДОВ И МАРШРУТЫ СОГЛАСОВАНИЯ (CLAUDE.md §7) — настраиваемые
+// ============================================================================
+
+// Вид расхода. Настраивается в БД (не захардкожен). Определяет счёт, маршрут,
+// нужна ли смета, формирует ли депозит/резерв.
+model ExpenseType {
+  id               String       @id @default(cuid())
+  entityId         String
+  entity           Entity       @relation(fields: [entityId], references: [id])
+  name             String // «Гонорары блогеров», «Офисные расходы», ...
+  code             String
+  accountKind      AccountKind // на какой счёт ложится (6890/7366/3098/0175)
+  isProjectCost    Boolean      @default(false) // проектная себестоимость (нужен проект)
+  requiresEstimate Boolean      @default(false) // требует привязки к смете
+  serviceType      ServiceType? // если проектный — какая услуга
+  defaultPriority  Priority     @default(FLEXIBLE)
+  departmentId     String?
+  department       Department?  @relation(fields: [departmentId], references: [id])
+  isActive         Boolean      @default(true)
+
+  route           ApprovalRoute?
+  paymentRequests PaymentRequest[]
+  budgetLines     BudgetLine[]
+
+  @@unique([entityId, code])
+  @@map("expense_types")
+}
+
+// Маршрут согласования для вида расхода. Многоступенчатый, настраиваемый.
+model ApprovalRoute {
+  id            String      @id @default(cuid())
+  entityId      String
+  entity        Entity      @relation(fields: [entityId], references: [id])
+  expenseTypeId String      @unique
+  expenseType   ExpenseType @relation(fields: [expenseTypeId], references: [id])
+  isActive      Boolean     @default(true)
+
+  steps ApprovalStep[]
+
+  @@map("approval_routes")
+}
+
+// Ступень маршрута. Заявка переходит к следующей ступени только после одобрения
+// предыдущей (CLAUDE.md §7). Несколько согласующих на одной ступени = параллельно.
+model ApprovalStep {
+  id         String        @id @default(cuid())
+  routeId    String
+  route      ApprovalRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  order      Int // 1, 2, 3...
+  approverId String
+  approver   User          @relation(fields: [approverId], references: [id])
+
+  approvals RequestApproval[]
+
+  @@unique([routeId, order, approverId])
+  @@index([routeId])
+  @@map("approval_steps")
+}
+
+// ============================================================================
+//  ЗАЯВКИ И ИХ ЖИЗНЕННЫЙ ЦИКЛ (CLAUDE.md §11, §12)
+// ============================================================================
+
+enum RequestStatus {
+  DRAFT // Черновик
+  PENDING_APPROVAL // На согласовании (по ступеням маршрута)
+  CLARIFICATION // Запрошено уточнение
+  APPROVED // Одобрена
+  REJECTED // Отклонена
+  IN_REGISTER // В реестре на оплату
+  PAID // Оплачена (по факту списания из выписки)
+  CANCELLED // Отменена заявителем
+}
+
+// Приоритет при дефиците (CLAUDE.md §8).
+enum Priority {
+  CRITICAL // налоги, ЗП, обязательства с пенями
+  RELATIONSHIP // блогеры/подрядчики действующих проектов
+  FLEXIBLE // подписки, подарки — можно перенести
+}
+
+// Заявка на платёж — ядро Системы А.
+model PaymentRequest {
+  id            String        @id @default(cuid())
+  entityId      String
+  entity        Entity        @relation(fields: [entityId], references: [id])
+  number        String // человекочитаемый номер заявки
+  expenseTypeId String
+  expenseType   ExpenseType   @relation(fields: [expenseTypeId], references: [id])
+  status        RequestStatus @default(DRAFT)
+
+  // Кто создал (заявитель). Видит только свои заявки (CLAUDE.md §10).
+  createdById String
+  createdBy   User   @relation("RequestCreatedBy", fields: [createdById], references: [id])
+
+  // Проектные поля (если проектный расход).
+  projectId      String?
+  project        Project?      @relation(fields: [projectId], references: [id])
+  recipientId    String?
+  recipient      Recipient?    @relation(fields: [recipientId], references: [id])
+  estimateLineId String? // ссылка на плановую строку сметы (план-факт)
+  estimateLine   EstimateLine? @relation(fields: [estimateLineId], references: [id])
+
+  amount         BigInt // сумма к оплате, тиыны
+  purpose        String // назначение платежа
+  priority       Priority  @default(FLEXIBLE)
+  desiredPayDate DateTime? // желаемая дата оплаты (для календаря)
+  comment        String?
+
+  // Текущая ступень согласования (индекс order активной ступени).
+  currentStepOrder Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  approvals     RequestApproval[]
+  attachments   Attachment[]
+  transactions  Transaction[]
+  registerItems PayoutRegisterItem[]
+
+  @@unique([entityId, number])
+  @@index([entityId, status])
+  @@index([createdById])
+  @@map("payment_requests")
+}
+
+enum ApprovalDecision {
+  APPROVED
+  REJECTED
+  CLARIFICATION_REQUESTED
+}
+
+// Решение согласующего по конкретной ступени. Отклонение на любой ступени
+// останавливает заявку (CLAUDE.md §7).
+model RequestApproval {
+  id         String           @id @default(cuid())
+  requestId  String
+  request    PaymentRequest   @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  stepId     String
+  step       ApprovalStep     @relation(fields: [stepId], references: [id])
+  approverId String
+  approver   User             @relation(fields: [approverId], references: [id])
+  decision   ApprovalDecision
+  comment    String?
+  decidedAt  DateTime         @default(now())
+
+  @@index([requestId])
+  @@map("request_approvals")
+}
+
+// Прикреплённые файлы (счёт/договор). В dev — на диске, путь в filePath.
+model Attachment {
+  id        String         @id @default(cuid())
+  requestId String
+  request   PaymentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fileName  String
+  filePath  String
+  mimeType  String
+  sizeBytes Int
+  createdAt DateTime       @default(now())
+
+  @@map("attachments")
+}
+
+// ============================================================================
+//  КАЗНАЧЕЙСТВО (CLAUDE.md §8)
+// ============================================================================
+
+enum RegisterStatus {
+  DRAFT // формируется
+  DECIDED // коллегия приняла решение что проводить
+  CLOSED
+}
+
+// Реестр на оплату — формируется раз в день/неделю, сортируется по приоритету.
+model PayoutRegister {
+  id        String         @id @default(cuid())
+  entityId  String
+  entity    Entity         @relation(fields: [entityId], references: [id])
+  title     String
+  status    RegisterStatus @default(DRAFT)
+  createdAt DateTime       @default(now())
+
+  items PayoutRegisterItem[]
+
+  @@map("payout_registers")
+}
+
+model PayoutRegisterItem {
+  id           String         @id @default(cuid())
+  registerId   String
+  register     PayoutRegister @relation(fields: [registerId], references: [id], onDelete: Cascade)
+  requestId    String
+  request      PaymentRequest @relation(fields: [requestId], references: [id])
+  priorityRank Int // позиция при сортировке по приоритету
+  included     Boolean        @default(true) // проводим сегодня (решение коллегии)
+  deferred     Boolean        @default(false) // перенесено на следующий период
+
+  @@unique([registerId, requestId])
+  @@map("payout_register_items")
+}
+
+// ============================================================================
+//  ПОСТУПЛЕНИЯ И РАЗНЕСЕНИЕ (DECISIONS.md §4, §5)
+// ============================================================================
+
+enum IncomingStatus {
+  UNALLOCATED // деньги пришли, сметы/разноса ещё нет (висит, SLA-таймер)
+  PARTIALLY_ALLOCATED
+  ALLOCATED // разнесено по смете
+}
+
+// Поступление от клиента (входящий платёж из банковской выписки).
+model Incoming {
+  id               String         @id @default(cuid())
+  entityId         String
+  entity           Entity         @relation(fields: [entityId], references: [id])
+  amount           BigInt // сумма поступления, тиыны
+  receivedAt       DateTime // дата зачисления (из выписки)
+  counterpartyName String? // плательщик из выписки
+  status           IncomingStatus @default(UNALLOCATED)
+
+  // Привязка к проекту (после сопоставления бухгалтером).
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id])
+
+  // SLA: ответственный менеджер за «висящее» поступление (DECISIONS.md §5).
+  responsibleUserId String?
+  responsibleUser   User?   @relation("IncomingResponsible", fields: [responsibleUserId], references: [id])
+
+  bankLineId String?            @unique
+  bankLine   BankStatementLine? @relation(fields: [bankLineId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  allocations  Allocation[]
+  transactions Transaction[]
+
+  @@index([entityId, status])
+  @@map("incomings")
+}
+
+// Разнос поступления по смете: дробление на НДС/себестоимость/маржу.
+// Пропорционально доле поступления от суммы сметы (DECISIONS.md §4).
+// Остаток округления сыпется в маржу (сумма частей == сумме поступления).
+model Allocation {
+  id                String          @id @default(cuid())
+  incomingId        String
+  incoming          Incoming        @relation(fields: [incomingId], references: [id], onDelete: Cascade)
+  estimateVersionId String
+  estimateVersion   EstimateVersion @relation(fields: [estimateVersionId], references: [id])
+
+  // Разнесённые части (тиыны). vat+cost+margin == incoming.amount по этой доле.
+  vatAmount    BigInt
+  costAmount   BigInt
+  marginAmount BigInt
+  // Доля поступления от полной суммы сметы (для частичной оплаты), в б.п. (0..10000).
+  ratioBps     Int
+
+  postedById String?
+  postedAt   DateTime @default(now())
+
+  transactions Transaction[]
+
+  @@index([incomingId])
+  @@map("allocations")
+}
+
+// ============================================================================
+//  ДВИЖЕНИЯ ПО СЧЕТАМ (единый журнал, агрегируется в балансы)
+// ============================================================================
+
+enum TransactionKind {
+  CLIENT_INCOMING // зачисление от клиента на 6890 (или 0175 для спецпроекта)
+  VAT_TRANSFER // перевод НДС на 3098
+  COST_TRANSFER // перевод себестоимости на 7366
+  MARGIN_RETAINED // маржа осталась на 6890 / 0175
+  DEPOSIT_FUNDING // пополнение депозита продакшна
+  RESERVE_FUNDING // пополнение резерва
+  PAYOUT // выплата получателю/подрядчику (по заявке)
+  ADJUSTMENT // корректировка (пересчёт сметы, ручная правка)
+}
+
+// Атомарное движение денег. amount со знаком: + приток, − отток на данном счёте.
+// Балансы — агрегаты: по счёту (accountId), по проекту (projectId),
+// по депозиту/резерву (через project.ledger). Привязки опциональны по смыслу.
+model Transaction {
+  id          String          @id @default(cuid())
+  entityId    String
+  entity      Entity          @relation(fields: [entityId], references: [id])
+  accountId   String
+  account     Account         @relation(fields: [accountId], references: [id])
+  kind        TransactionKind
+  amount      BigInt // знаковая сумма, тиыны
+  occurredAt  DateTime
+  description String?
+
+  // Контекст (что породило движение) — опционально по типу.
+  projectId        String?
+  project          Project?        @relation(fields: [projectId], references: [id])
+  recipientId      String?
+  recipient        Recipient?      @relation(fields: [recipientId], references: [id])
+  paymentRequestId String?
+  paymentRequest   PaymentRequest? @relation(fields: [paymentRequestId], references: [id])
+  incomingId       String?
+  incoming         Incoming?       @relation(fields: [incomingId], references: [id])
+  allocationId     String?
+  allocation       Allocation?     @relation(fields: [allocationId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  @@index([accountId])
+  @@index([projectId])
+  @@index([entityId, occurredAt])
+  @@map("transactions")
+}
+
+// ============================================================================
+//  БЮДЖЕТ 6890 — ПЛАН-ФАКТ (CLAUDE.md §9)
+// ============================================================================
+
+model BudgetPeriod {
+  id        String   @id @default(cuid())
+  entityId  String
+  entity    Entity   @relation(fields: [entityId], references: [id])
+  year      Int
+  month     Int? // null = годовой бюджет; иначе помесячный
+  createdAt DateTime @default(now())
+
+  lines BudgetLine[]
+
+  @@unique([entityId, year, month])
+  @@map("budget_periods")
+}
+
+// Плановая статья бюджета 6890. Факт считается по проведённым Transaction на 6890.
+model BudgetLine {
+  id            String       @id @default(cuid())
+  periodId      String
+  period        BudgetPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  expenseTypeId String?
+  expenseType   ExpenseType? @relation(fields: [expenseTypeId], references: [id])
+  title         String // статья расходов
+  plannedAmount BigInt // план, тиыны
+
+  @@index([periodId])
+  @@map("budget_lines")
+}
+
+// ============================================================================
+//  ИМПОРТ БАНКОВСКОЙ ВЫПИСКИ (DECISIONS.md §2, §3)
+// ============================================================================
+
+enum BankImportFormat {
+  ONEC // формат обмена 1С (основной)
+  EXCEL // маппинг колонок
+  PDF // ручной фоллбэк
+}
+
+model BankStatementImport {
+  id         String           @id @default(cuid())
+  entityId   String
+  entity     Entity           @relation(fields: [entityId], references: [id])
+  format     BankImportFormat
+  fileName   String
+  importedAt DateTime         @default(now())
+
+  lines BankStatementLine[]
+
+  @@map("bank_statement_imports")
+}
+
+enum BankLineDirection {
+  CREDIT // зачисление (поступление от клиента)
+  DEBIT // списание (исходящий платёж → статус «оплачено»)
+}
+
+// Строка выписки. CREDIT → распознаётся в Incoming. DEBIT → матчится с заявкой
+// и закрывает «оплачено» (DECISIONS.md §3).
+model BankStatementLine {
+  id           String              @id @default(cuid())
+  importId     String
+  import       BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  direction    BankLineDirection
+  amount       BigInt
+  occurredAt   DateTime
+  counterparty String?
+  purpose      String?
+  matched      Boolean             @default(false)
+
+  incoming Incoming?
+
+  @@index([importId])
+  @@map("bank_statement_lines")
+}
+
+// ============================================================================
+//  АУДИТ (CLAUDE.md §2, §12) — каждое значимое изменение
+// ============================================================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityId   String
+  entity     Entity   @relation(fields: [entityId], references: [id])
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
+  action     String // напр. "REQUEST_APPROVED", "ESTIMATE_REVISED", "MARKED_PAID"
+  targetType String // "PaymentRequest" | "Estimate" | ...
+  targetId   String
+  comment    String?
+  metadata   Json? // before/after снапшоты
+  createdAt  DateTime @default(now())
+
+  @@index([entityId, targetType, targetId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}

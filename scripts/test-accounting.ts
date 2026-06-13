@@ -1,0 +1,75 @@
+// Тест финансового движка: разнесение поступлений по смете + выплаты.
+// Проверяет точность в тиынах и сходимость балансов. npx tsx test-accounting.ts
+import { PrismaClient } from "@prisma/client";
+import { postIncomingAllocation } from "@/lib/accounting/posting";
+import { markPaid } from "@/lib/treasury/service";
+import { accountBalanceByCode, projectBalance } from "@/lib/accounting/balances";
+
+const prisma = new PrismaClient();
+let pass = 0, fail = 0;
+function eq(a: bigint, b: bigint, label: string) {
+  const ok = a === b;
+  console.log(`${ok ? "✓" : "✗ ПРОВАЛ:"} ${label}  (${a}${ok ? "" : " ≠ " + b})`);
+  ok ? pass++ : fail++;
+}
+
+async function authUser(email: string) {
+  const u = await prisma.user.findUnique({ where: { email }, include: { roles: true } });
+  return { id: u!.id, email: u!.email, fullName: u!.fullName, entityId: u!.entityId, departmentId: u!.departmentId, roles: u!.roles.map((r) => r.role) };
+}
+
+async function main() {
+  const E = "entity_bravetalents";
+  // Чистим транзакционные данные (демо-справочники не трогаем).
+  await prisma.transaction.deleteMany({ where: { entityId: E } });
+  await prisma.allocation.deleteMany({});
+  await prisma.incoming.deleteMany({ where: { entityId: E } });
+
+  const cfo = await authUser("sanzhar.assylbek@bravetalents.com");
+  const accountant = await authUser("symbat.otesh@bravetalents.com");
+
+  // Смета Наурыз: gross 100 000 000, НДС 10 714 286, себест. 60 000 000, маржа 29 285 714.
+
+  // 1. Полная оплата
+  const inc1 = await prisma.incoming.create({ data: { entityId: E, amount: 100_000_000n, receivedAt: new Date("2026-06-01"), projectId: "demo_project_nauryz", status: "UNALLOCATED" } });
+  const a1 = await postIncomingAllocation(cfo, inc1.id);
+  eq(a1.vatAmount, 10_714_286n, "полная оплата: НДС");
+  eq(a1.costAmount, 60_000_000n, "полная оплата: себестоимость");
+  eq(a1.marginAmount, 29_285_714n, "полная оплата: маржа");
+  eq(a1.vatAmount + a1.costAmount + a1.marginAmount, 100_000_000n, "части сходятся к поступлению");
+
+  eq(await accountBalanceByCode(E, "6890"), 29_285_714n, "остаток 6890 = маржа");
+  eq(await accountBalanceByCode(E, "3098"), 10_714_286n, "остаток 3098 = НДС");
+  eq(await accountBalanceByCode(E, "7366"), 60_000_000n, "остаток 7366 = себестоимость");
+  eq(await projectBalance("demo_project_nauryz"), 60_000_000n, "баланс проекта = себестоимость");
+
+  // 2. Частичная оплата 50%
+  const inc2 = await prisma.incoming.create({ data: { entityId: E, amount: 50_000_000n, receivedAt: new Date("2026-06-05"), projectId: "demo_project_nauryz", status: "UNALLOCATED" } });
+  const a2 = await postIncomingAllocation(cfo, inc2.id);
+  eq(a2.vatAmount, 5_357_143n, "50%: НДС пропорционально");
+  eq(a2.costAmount, 30_000_000n, "50%: себестоимость пропорционально");
+  eq(a2.marginAmount, 14_642_857n, "50%: маржа (с остатком округления)");
+  eq(a2.vatAmount + a2.costAmount + a2.marginAmount, 50_000_000n, "50%: части сходятся");
+
+  // 3. Выплата получателю (35 000 000) → баланс проекта уменьшается
+  const req = await prisma.paymentRequest.create({
+    data: { entityId: E, number: "PAYTEST-1", expenseTypeId: (await prisma.expenseType.findFirstOrThrow({ where: { code: "BLOGGER_FEE" } })).id, status: "IN_REGISTER", createdById: cfo.id, projectId: "demo_project_nauryz", recipientId: "demo_recipient_aibek", amount: 35_000_000n, purpose: "[PAYTEST] выплата", priority: "RELATIONSHIP" },
+  });
+  await markPaid(accountant, req.id, new Date("2026-06-10"));
+  eq(await projectBalance("demo_project_nauryz"), 90_000_000n - 35_000_000n, "баланс проекта после выплаты");
+  eq((await prisma.paymentRequest.findUnique({ where: { id: req.id } }))!.status === "PAID" ? 1n : 0n, 1n, "заявка стала PAID");
+
+  // 4. Сходимость: сумма ВСЕХ транзакций = поступления − выплаты
+  const all = await prisma.transaction.aggregate({ where: { entityId: E }, _sum: { amount: true } });
+  eq(all._sum.amount ?? 0n, 150_000_000n - 35_000_000n, "сходимость: сумма всех транзакций = приток − отток");
+
+  // Чистим тестовое
+  await prisma.transaction.deleteMany({ where: { entityId: E } });
+  await prisma.allocation.deleteMany({});
+  await prisma.incoming.deleteMany({ where: { entityId: E } });
+  await prisma.paymentRequest.deleteMany({ where: { number: "PAYTEST-1" } });
+
+  console.log(`\nИТОГО: ${pass} прошло, ${fail} провалено`);
+}
+
+main().catch((e) => { console.error(e); fail++; }).finally(async () => { await prisma.$disconnect(); process.exit(fail > 0 ? 1 : 0); });
