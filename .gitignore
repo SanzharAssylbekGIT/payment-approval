@@ -36,3 +36,6 @@ yarn-error.log*
 # runtime / local
 dev-server.log
 .claude/settings.local.json
+
+# реальные финансовые данные (выписки, реестры) — НЕ коммитим
+/import-samples

@@ -486,6 +486,7 @@ model PaymentRequest {
   attachments   Attachment[]
   transactions  Transaction[]
   registerItems PayoutRegisterItem[]
+  bankLines     BankStatementLine[] @relation("RequestBankMatch")
 
   @@unique([entityId, number])
   @@index([entityId, status])
@@ -727,12 +728,18 @@ enum BankImportFormat {
 }
 
 model BankStatementImport {
-  id         String           @id @default(cuid())
-  entityId   String
-  entity     Entity           @relation(fields: [entityId], references: [id])
-  format     BankImportFormat
-  fileName   String
-  importedAt DateTime         @default(now())
+  id            String           @id @default(cuid())
+  entityId      String
+  entity        Entity           @relation(fields: [entityId], references: [id])
+  format        BankImportFormat
+  fileName      String
+  accountCode   String? // 6890 / 7366 / 3098 / 0175 (из реквизитов выписки)
+  periodFrom    String?
+  periodTo      String?
+  openingBalance BigInt?
+  closingBalance BigInt?
+  balanceOk     Boolean? // сошёлся ли баланс (вх + кред − деб == исх)
+  importedAt    DateTime         @default(now())
 
   lines BankStatementLine[]
 
@@ -744,6 +751,16 @@ enum BankLineDirection {
   DEBIT // списание (исходящий платёж → статус «оплачено»)
 }
 
+// Категория строки выписки (авто по КНП/направлению).
+enum BankLineCategory {
+  CLIENT_INCOMING // клиентское поступление (→ разнос по смете)
+  PROJECT_PAYOUT // выплата (блогер/подрядчик/услуга) → матч с заявкой
+  INTERNAL_TRANSFER // перевод собственных средств (КНП 342) — исключается
+  SALARY // зарплата (КНП 332)
+  NON_REVENUE // валюта/займы/возвраты/проценты — не выручка
+  OTHER
+}
+
 // Строка выписки. CREDIT → распознаётся в Incoming. DEBIT → матчится с заявкой
 // и закрывает «оплачено» (DECISIONS.md §3).
 model BankStatementLine {
@@ -753,13 +770,21 @@ model BankStatementLine {
   direction    BankLineDirection
   amount       BigInt
   occurredAt   DateTime
+  docNumber    String?
   counterparty String?
+  iban         String?
+  knp          String?
   purpose      String?
+  category     BankLineCategory    @default(OTHER)
   matched      Boolean             @default(false)
+  // Предложенная/подтверждённая заявка (для списаний) → отметка «оплачено».
+  matchedRequestId String?
+  matchedRequest   PaymentRequest? @relation("RequestBankMatch", fields: [matchedRequestId], references: [id])
 
   incoming Incoming?
 
   @@index([importId])
+  @@index([category])
   @@map("bank_statement_lines")
 }
 

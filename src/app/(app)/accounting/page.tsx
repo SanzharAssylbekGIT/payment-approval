@@ -8,6 +8,7 @@ const SECTIONS = [
   { href: "/accounting/projects", label: "Проектные балансы 7366", desc: "Клиент → Проект → Получатель" },
   { href: "/accounting/deposits", label: "Депозиты и резервы", desc: "Балансы и движения «копилок»" },
   { href: "/accounting/incomings", label: "Поступления", desc: "Регистрация и разнос по смете" },
+  { href: "/accounting/import", label: "Импорт выписки", desc: "Загрузка Kaspi → разбор → сверка" },
   { href: "/accounting/budget", label: "Бюджет 6890", desc: "План-факт по статьям" },
   { href: "/accounting/report", label: "Ежемесячный отчёт", desc: "Поступления, расходы, маржа" },
 ];
