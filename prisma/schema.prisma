@@ -712,6 +712,11 @@ model BudgetLine {
   expenseType   ExpenseType? @relation(fields: [expenseTypeId], references: [id])
   title         String // статья расходов
   plannedAmount BigInt // план, тиыны
+  // Факт за период. Для помесячного бюджета бэк-офиса заполняется из реестра
+  // (сопоставление по ключевым словам). Для бюджетов с expenseType факт может
+  // считаться по оплаченным заявкам — см. getBudget6890.
+  actualAmount  BigInt @default(0)
+  matchKeywords String? // ключевые слова статьи для авто-привязки факта
 
   @@index([periodId])
   @@map("budget_lines")

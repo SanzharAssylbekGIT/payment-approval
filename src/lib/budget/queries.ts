@@ -3,9 +3,9 @@ import { prisma } from "@/lib/db";
 // План-факт по бюджету 6890 (CLAUDE.md §9). План — из BudgetLine, факт — из
 // фактически оплаченных заявок (статус PAID) по соответствующему виду расхода.
 // Дивиденды Алмаса — вне бюджета 6890 (исключаем).
-export async function getBudget6890(entityId: string, year: number) {
+export async function getBudget6890(entityId: string, year: number, month: number | null = null) {
   const period = await prisma.budgetPeriod.findFirst({
-    where: { entityId, year, month: null },
+    where: { entityId, year, month },
     include: { lines: { include: { expenseType: true } } },
   });
 
@@ -17,16 +17,20 @@ export async function getBudget6890(entityId: string, year: number) {
   const factByType = new Map<string, bigint>();
   for (const p of paid) factByType.set(p.expenseTypeId, (factByType.get(p.expenseTypeId) ?? 0n) + p.amount);
 
-  const lines = (period?.lines ?? []).map((l) => {
-    const planned = l.plannedAmount;
-    const actual = l.expenseTypeId ? factByType.get(l.expenseTypeId) ?? 0n : 0n;
-    const deviation = planned - actual;
-    const pct = planned > 0n ? Number((actual * 100n) / planned) : 0;
-    return { id: l.id, title: l.title, planned, actual, deviation, pct };
-  });
+  const lines = (period?.lines ?? [])
+    .map((l) => {
+      const planned = l.plannedAmount;
+      // Факт: сохранённый actualAmount (помесячный бюджет бэк-офиса) либо расчёт
+      // по оплаченным заявкам через expenseType.
+      const actual = l.actualAmount > 0n ? l.actualAmount : l.expenseTypeId ? factByType.get(l.expenseTypeId) ?? 0n : 0n;
+      const deviation = planned - actual;
+      const pct = planned > 0n ? Number((actual * 100n) / planned) : 0;
+      return { id: l.id, title: l.title, planned, actual, deviation, pct };
+    })
+    .sort((a, b) => Number(b.planned - a.planned)); // крупные статьи сверху
 
   const totalPlan = lines.reduce((s, l) => s + l.planned, 0n);
   const totalFact = lines.reduce((s, l) => s + l.actual, 0n);
 
-  return { year, hasPeriod: !!period, lines, totalPlan, totalFact, totalDeviation: totalPlan - totalFact, totalPct: totalPlan > 0n ? Number((totalFact * 100n) / totalPlan) : 0 };
+  return { year, month, hasPeriod: !!period, lines, totalPlan, totalFact, totalDeviation: totalPlan - totalFact, totalPct: totalPlan > 0n ? Number((totalFact * 100n) / totalPlan) : 0 };
 }
