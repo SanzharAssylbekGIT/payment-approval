@@ -210,12 +210,27 @@ async function main() {
   console.log("Готово. Пользователей:", USERS.length, "| Видов расходов:", EXPENSE_TYPES.length);
 }
 
-// База блогеров с прайсами по форматам (DECISIONS §14) — основа расчёта скидок.
+// Демо-база блогеров (DECISIONS §14.4): опции с названиями, себес + налог +
+// себес с налогом (gross-up: с налогом = себес / (1 − налог)). Реальная база
+// загружается скриптом npm run bloggers:import — он деактивирует демо-тройку.
 async function seedBloggers() {
-  const BLOGGERS: { name: string; prices: Partial<Record<"STORY" | "STORY_SERIES" | "REELS" | "PHOTO_POST" | "TIKTOK", bigint>> }[] = [
-    { name: "Блогер Айбек", prices: { STORY: 15_000_000n, STORY_SERIES: 25_000_000n, REELS: 40_000_000n, TIKTOK: 30_000_000n } },
-    { name: "Блогер Динара", prices: { STORY: 10_000_000n, STORY_SERIES: 18_000_000n, REELS: 30_000_000n, PHOTO_POST: 12_000_000n } },
-    { name: "Блогер Санжик", prices: { STORY: 8_000_000n, REELS: 20_000_000n, TIKTOK: 15_000_000n } },
+  const grossUp = (net: bigint, taxPct: number) => (net * 100n + BigInt(Math.floor((100 - taxPct) / 2))) / BigInt(100 - taxPct);
+  const BLOGGERS: { name: string; taxPct: number; options: { name: string; kind: string; price: bigint }[] }[] = [
+    {
+      name: "Блогер Айбек", taxPct: 10,
+      options: [
+        { name: "Сторис (15 сек)", kind: "STORY", price: 15_000_000n },
+        { name: "Блок сторис (3-4 по 15 сек)", kind: "STORY_SERIES", price: 25_000_000n },
+        { name: "Видеопост", kind: "VIDEO_POST", price: 40_000_000n },
+      ],
+    },
+    {
+      name: "Блогер Динара", taxPct: 10,
+      options: [
+        { name: "Сторис (15 сек)", kind: "STORY", price: 10_000_000n },
+        { name: "Фотопост", kind: "PHOTO_POST", price: 12_000_000n },
+      ],
+    },
   ];
   for (const b of BLOGGERS) {
     const rec = await prisma.blogger.upsert({
@@ -223,11 +238,12 @@ async function seedBloggers() {
       update: {},
       create: { entityId: ENTITY_ID, name: b.name },
     });
-    for (const [kind, price] of Object.entries(b.prices)) {
+    for (const o of b.options) {
+      const priceWithTax = grossUp(o.price, b.taxPct);
       await prisma.bloggerPrice.upsert({
-        where: { bloggerId_kind: { bloggerId: rec.id, kind: kind as never } },
-        update: { price },
-        create: { bloggerId: rec.id, kind: kind as never, price },
+        where: { bloggerId_name: { bloggerId: rec.id, name: o.name } },
+        update: { price: o.price, taxPct: b.taxPct, priceWithTax, kind: o.kind as never },
+        create: { bloggerId: rec.id, name: o.name, kind: o.kind as never, price: o.price, taxPct: b.taxPct, priceWithTax },
       });
     }
   }

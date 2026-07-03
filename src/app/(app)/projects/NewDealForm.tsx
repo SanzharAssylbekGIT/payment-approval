@@ -2,9 +2,8 @@
 
 import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { createDeal, type DealState } from "@/lib/projects/actions";
-import { DELIVERABLE_LABELS, DEAL_DELIVERABLES } from "@/lib/requests/status";
 import { SERVICE_LABELS } from "@/lib/accounting/labels";
-import type { BloggerDeliverable, ServiceType } from "@prisma/client";
+import type { ServiceType } from "@prisma/client";
 
 const inputCls =
   "mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500";
@@ -12,19 +11,20 @@ const inputCls =
 export interface BloggerOpt {
   id: string;
   name: string;
-  prices: Partial<Record<BloggerDeliverable, string>>; // тенге строкой
+  link: string | null;
+  options: { name: string; kind: string; priceWithTax: string }[]; // цена — тенге строкой
 }
 
 interface Row {
-  bloggerId: string; // id из базы | "" (не выбран) | "__custom__" (не из базы)
-  name: string;
-  fee: string;
-  deliverables: BloggerDeliverable[];
-  custom: string;
+  bloggerId: string; // id из базы | "" | "__custom__" (не из базы)
+  name: string; // имя (для «не из базы»)
+  optionName: string; // выбранная опция из прайса | "__custom__" | ""
+  custom: string; // своя опция текстом
+  fee: string; // гонорар (себес с налогом), тенге
 }
 
 const SERVICE_KEYS = Object.keys(SERVICE_LABELS) as ServiceType[];
-const emptyRow: Row = { bloggerId: "", name: "", fee: "", deliverables: [], custom: "" };
+const emptyRow: Row = { bloggerId: "", name: "", optionName: "", custom: "", fee: "" };
 
 function num(s: string): number {
   const n = Number(String(s).replace(/\s/g, "").replace(",", "."));
@@ -34,15 +34,9 @@ function fmt(n: number): string {
   return `${Math.round(n).toLocaleString("ru-RU").replace(/,/g, " ")} ₸`;
 }
 
-// Прайс строки = Σ цен блогера по выбранным форматам (если блогер из базы).
-function rowBase(row: Row, bloggers: BloggerOpt[]): number {
-  const b = bloggers.find((x) => x.id === row.bloggerId);
-  if (!b) return 0;
-  return row.deliverables.reduce((s, d) => s + num(b.prices[d] ?? "0"), 0);
-}
-
 // Форма сделки (DECISIONS §14): пара продажник+проджект, сроки, экономика,
-// таблица блогеров с базой цен и скидками. Себес = резерв + гонорары.
+// блогеры из базы цен — опция выбирается из прайса блогера (дропдаун), цена
+// подставляется (себес с налогом), скидка = прайс − заполненный гонорар.
 export function NewDealForm({
   projectManagers,
   clients,
@@ -72,6 +66,15 @@ export function NewDealForm({
     }
   }, [state.ok]);
 
+  function bloggerOf(row: Row) {
+    return bloggers.find((b) => b.id === row.bloggerId) ?? null;
+  }
+  function optionOf(row: Row) {
+    const b = bloggerOf(row);
+    if (!b || row.optionName === "__custom__") return null;
+    return b.options.find((o) => o.name === row.optionName) ?? null;
+  }
+
   const totals = useMemo(() => {
     const g = num(deal);
     const vat = (g * 12) / 112;
@@ -85,21 +88,21 @@ export function NewDealForm({
     setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   }
 
-  // Строки для сервера: имя из базы или ручное, прайс на момент сделки.
   const linesJson = JSON.stringify(
     rows
       .filter((r) => r.name.trim() || r.fee.trim() || r.bloggerId)
       .map((r) => {
-        const fromBase = bloggers.find((b) => b.id === r.bloggerId);
-        const base = rowBase(r, bloggers);
+        const b = bloggerOf(r);
+        const opt = optionOf(r);
         return {
-          bloggerId: fromBase?.id ?? null,
-          name: fromBase?.name ?? r.name,
+          bloggerId: b?.id ?? null,
+          name: b?.name ?? r.name,
           fee: r.fee,
-          deliverables: r.deliverables,
-          custom: r.custom,
-          base: base > 0 ? String(base) : undefined,
-          isCategory: false, // резерв добавляется категорией на сервере
+          optionName: opt?.name ?? null,
+          kind: opt?.kind ?? null,
+          custom: r.custom || null,
+          base: opt ? opt.priceWithTax : undefined,
+          isCategory: false,
         };
       }),
   );
@@ -186,40 +189,71 @@ export function NewDealForm({
         {/* Таблица блогеров / строк себестоимости */}
         <div>
           <label className="block text-sm font-medium text-gray-700">
-            {isInfluence ? "Выплаты блогерам *" : "Строки себестоимости *"}
+            {isInfluence ? "Выплаты блогерам * (одна строка = блогер × опция)" : "Строки себестоимости *"}
           </label>
           <div className="mt-2 space-y-3">
             {rows.map((r, i) => {
-              const fromBase = bloggers.find((b) => b.id === r.bloggerId);
-              const base = rowBase(r, bloggers);
+              const b = bloggerOf(r);
+              const opt = optionOf(r);
+              const base = opt ? num(opt.priceWithTax) : 0;
               const fee = num(r.fee);
               const discount = base > 0 && fee > 0 ? base - fee : 0;
               return (
                 <div key={i} className="rounded-lg border border-gray-200 p-3">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {isInfluence ? (
                       <>
                         <select
                           value={r.bloggerId}
                           onChange={(e) => {
                             const v = e.target.value;
-                            const b = bloggers.find((x) => x.id === v);
-                            setRow(i, { bloggerId: v, name: b?.name ?? r.name });
+                            const nb = bloggers.find((x) => x.id === v);
+                            setRow(i, { bloggerId: v, name: nb?.name ?? "", optionName: "", custom: "", fee: "" });
                           }}
                           className={`${inputCls} mt-0 w-56`}
                         >
                           <option value="">— блогер из базы —</option>
-                          {bloggers.map((b) => (
-                            <option key={b.id} value={b.id}>{b.name}</option>
+                          {bloggers.map((x) => (
+                            <option key={x.id} value={x.id}>{x.name}</option>
                           ))}
                           <option value="__custom__">Другой (не из базы)</option>
                         </select>
-                        {(r.bloggerId === "__custom__" || (!fromBase && r.bloggerId !== "")) && (
+
+                        {r.bloggerId === "__custom__" && (
                           <input
                             placeholder="Имя блогера"
                             value={r.name}
                             onChange={(e) => setRow(i, { name: e.target.value })}
                             className={`${inputCls} mt-0 flex-1`}
+                          />
+                        )}
+
+                        {/* Опция из прайса блогера (дропдаун) */}
+                        {b && (
+                          <select
+                            value={r.optionName}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              const o = b.options.find((x) => x.name === v);
+                              setRow(i, { optionName: v, fee: o ? o.priceWithTax : r.fee, custom: "" });
+                            }}
+                            className={`${inputCls} mt-0 min-w-64 flex-1`}
+                          >
+                            <option value="">— опция из прайса —</option>
+                            {b.options.map((o) => (
+                              <option key={o.name} value={o.name}>
+                                {o.name} — {fmt(num(o.priceWithTax))}
+                              </option>
+                            ))}
+                            <option value="__custom__">Своя опция (вручную)</option>
+                          </select>
+                        )}
+                        {(r.bloggerId === "__custom__" || r.optionName === "__custom__") && (
+                          <input
+                            placeholder="Что делает (опция)"
+                            value={r.custom}
+                            onChange={(e) => setRow(i, { custom: e.target.value })}
+                            className={`${inputCls} mt-0 w-52`}
                           />
                         )}
                       </>
@@ -233,60 +267,32 @@ export function NewDealForm({
                     )}
                     <input
                       inputMode="decimal"
-                      placeholder="Гонорар, ₸"
+                      placeholder="Гонорар (себес с налогом), ₸"
                       value={r.fee}
                       onChange={(e) => setRow(i, { fee: e.target.value })}
-                      className={`${inputCls} mt-0 w-36`}
+                      className={`${inputCls} mt-0 w-44`}
                     />
                     {rows.length > 1 && (
                       <button type="button" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-600" title="Убрать">✕</button>
                     )}
                   </div>
 
-                  {isInfluence && (
-                    <>
-                      <div className="mt-2 flex flex-wrap gap-3">
-                        {DEAL_DELIVERABLES.map((d) => (
-                          <label key={d} className="flex items-center gap-1.5 text-xs text-gray-600">
-                            <input
-                              type="checkbox"
-                              checked={r.deliverables.includes(d)}
-                              onChange={(e) =>
-                                setRow(i, {
-                                  deliverables: e.target.checked
-                                    ? [...r.deliverables, d]
-                                    : r.deliverables.filter((x) => x !== d),
-                                })
-                              }
-                              className="rounded border-gray-300"
-                            />
-                            {DELIVERABLE_LABELS[d]}
-                          </label>
-                        ))}
-                        {r.deliverables.includes("OTHER") && (
-                          <input
-                            placeholder="что именно"
-                            value={r.custom}
-                            onChange={(e) => setRow(i, { custom: e.target.value })}
-                            className="rounded border border-gray-300 px-2 py-0.5 text-xs"
-                          />
-                        )}
-                      </div>
-                      {base > 0 && (
-                        <p className="mt-2 text-xs">
-                          <span className="text-gray-500">Прайс по базе: {fmt(base)}</span>
-                          {discount > 0 && <span className="ml-2 font-medium text-green-700">скидка {fmt(discount)}</span>}
-                          {discount < 0 && <span className="ml-2 font-medium text-red-600">выше прайса на {fmt(-discount)}</span>}
-                        </p>
+                  {(base > 0 || b?.link) && (
+                    <p className="mt-2 flex flex-wrap gap-3 text-xs">
+                      {base > 0 && <span className="text-gray-500">Прайс: {fmt(base)}</span>}
+                      {discount > 0 && <span className="font-medium text-green-700">скидка {fmt(discount)}</span>}
+                      {discount < 0 && <span className="font-medium text-red-600">выше прайса на {fmt(-discount)}</span>}
+                      {b?.link && (
+                        <a href={b.link} target="_blank" rel="noreferrer" className="text-indigo-500 hover:underline">аккаунт ↗</a>
                       )}
-                    </>
+                    </p>
                   )}
                 </div>
               );
             })}
           </div>
           <button type="button" onClick={() => setRows((rs) => [...rs, { ...emptyRow }])} className="mt-2 text-sm text-indigo-600 hover:underline">
-            + Добавить {isInfluence ? "блогера" : "строку"}
+            + Добавить {isInfluence ? "блогера / опцию" : "строку"}
           </button>
         </div>
 

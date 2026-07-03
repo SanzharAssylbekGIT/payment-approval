@@ -86,10 +86,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                       <td className="py-1.5 text-gray-700">
                         {l.title}
                         {l.kind === "CATEGORY" && <span className="ml-2 text-xs text-gray-400">категория</span>}
-                        {l.deliverables.length > 0 && (
+                        {(l.customDeliverable || l.deliverables.length > 0) && (
                           <span className="ml-2 text-xs text-gray-400">
-                            {l.deliverables.map((d) => DELIVERABLE_LABELS[d]).join(", ")}
-                            {l.customDeliverable ? ` (${l.customDeliverable})` : ""}
+                            {l.customDeliverable ?? l.deliverables.map((d) => DELIVERABLE_LABELS[d]).join(", ")}
                           </span>
                         )}
                       </td>

@@ -29,14 +29,15 @@ const dealSchema = z.object({
   linesJson: z.string().min(1, "Добавьте строки себестоимости"),
 });
 
-// Строка таблицы из формы (JSON): блогер/категория + гонорар + форматы + прайс.
+// Строка таблицы из формы (JSON): блогер + опция из прайса (или своя) + гонорар.
 interface DealLineRaw {
   bloggerId?: string | null;
   name: string;
-  fee: string;
-  deliverables?: string[];
-  custom?: string;
-  base?: string; // прайс из базы (Σ по выбранным форматам), тенге
+  fee: string; // гонорар = себес с налогом, тенге
+  optionName?: string | null; // опция из прайса блогера
+  kind?: string | null; // маппинг опции на стандартный формат
+  custom?: string | null; // своя опция текстом
+  base?: string; // прайс опции (себес с налогом) на момент сделки, тенге
   isCategory?: boolean;
 }
 
@@ -109,16 +110,16 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
     if (r.base) {
       try { base = parseTengeToTiyn(r.base); } catch { base = null; }
     }
-    const deliverables = (r.deliverables ?? []).filter((v): v is BloggerDeliverable =>
-      VALID_DELIVERABLES.includes(v as BloggerDeliverable),
-    );
+    const kind = r.kind && VALID_DELIVERABLES.includes(r.kind as BloggerDeliverable) ? (r.kind as BloggerDeliverable) : null;
+    // Опция: из прайса блогера либо своя текстом — хранится в customDeliverable.
+    const optionText = r.optionName?.trim() || r.custom?.trim() || null;
     lines.push({
       title: r.name,
       amountTiyn: fee,
       isCategory: !!r.isCategory,
       bloggerId: r.bloggerId || null,
-      deliverables,
-      customDeliverable: deliverables.includes("OTHER") ? r.custom?.trim() || null : null,
+      deliverables: kind ? [kind] : optionText ? ["OTHER"] : [],
+      customDeliverable: optionText,
       baseFeeTiyn: base,
     });
   }

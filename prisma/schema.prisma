@@ -280,13 +280,14 @@ enum RecipientKind {
 //  БАЗА БЛОГЕРОВ (DECISIONS §14) — глобальный справочник с прайсами
 // ============================================================================
 
-// Блогер в справочнике компании (не привязан к проекту). Прайс по форматам —
+// Блогер в справочнике компании (не привязан к проекту). Прайс по опциям —
 // база для расчёта скидки в смете сделки (скидка = прайс − заполненный гонорар).
 model Blogger {
   id       String  @id @default(cuid())
   entityId String
   entity   Entity  @relation(fields: [entityId], references: [id])
   name     String
+  link     String? // ссылка на основной аккаунт (Instagram)
   isActive Boolean @default(true)
 
   prices     BloggerPrice[]
@@ -296,15 +297,22 @@ model Blogger {
   @@map("bloggers")
 }
 
-// Цена блогера за формат (сторис/рилс/...). Обновляется блогерским блоком.
+// Опция прайса блогера (DECISIONS §14.4): произвольное название из базы цен
+// («Сторис (15 сек)», «Участие в съёмках до 3 часов», ...). kind — маппинг на
+// стандартный формат для группировки; нестандартные опции → OTHER.
+// Прайс для скидки в сделке = себес С НАЛОГОМ (налог блогера накручивается
+// gross-up: с налогом = себес / (1 − налог%)).
 model BloggerPrice {
-  id        String             @id @default(cuid())
-  bloggerId String
-  blogger   Blogger            @relation(fields: [bloggerId], references: [id], onDelete: Cascade)
-  kind      BloggerDeliverable
-  price     BigInt // тиыны
+  id           String             @id @default(cuid())
+  bloggerId    String
+  blogger      Blogger            @relation(fields: [bloggerId], references: [id], onDelete: Cascade)
+  name         String // название опции из базы цен
+  kind         BloggerDeliverable @default(OTHER)
+  price        BigInt // себес (чистыми блогеру), тиыны
+  taxPct       Int? // налог блогера, % (10 = 10%)
+  priceWithTax BigInt // себес с налогом, тиыны — база скидки
 
-  @@unique([bloggerId, kind])
+  @@unique([bloggerId, name])
   @@map("blogger_prices")
 }
 

@@ -16,7 +16,8 @@
     "db:seed": "tsx prisma/seed.ts",
     "db:reset": "prisma migrate reset --force",
     "test:accounting": "tsx scripts/test-accounting.ts",
-    "demo:scenario": "tsx scripts/demo-scenario.ts"
+    "demo:scenario": "tsx scripts/demo-scenario.ts",
+    "bloggers:import": "tsx scripts/import-bloggers.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

@@ -49,11 +49,16 @@ export default async function ProjectsPage({
       : Promise.resolve([]),
   ]);
 
-  // BigInt-прайсы → строки тенге для клиентского компонента.
+  // BigInt-прайсы → строки тенге для клиентского компонента. Прайс для
+  // сделки/скидки — себес С НАЛОГОМ (DECISIONS §14.4).
   const bloggers: BloggerOpt[] = bloggerRows.map((b) => ({
     id: b.id,
     name: b.name,
-    prices: Object.fromEntries(b.prices.map((p) => [p.kind, tiynToInputString(p.price)])),
+    link: b.link,
+    options: b.prices
+      .slice()
+      .sort((x, y) => x.name.localeCompare(y.name, "ru"))
+      .map((p) => ({ name: p.name, kind: p.kind, priceWithTax: tiynToInputString(p.priceWithTax) })),
   }));
 
   return (
