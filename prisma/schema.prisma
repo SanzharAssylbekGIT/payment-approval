@@ -45,6 +45,7 @@ model Entity {
   payoutRegisters PayoutRegister[]
   bankImports     BankStatementImport[]
   auditLogs       AuditLog[]
+  bloggers        Blogger[]
 
   @@map("entities")
 }
@@ -81,7 +82,8 @@ enum AuthProvider {
 enum RoleName {
   REQUESTER // Заявитель
   APPROVER // Согласующий
-  ACCOUNT_MANAGER // Аккаунт-менеджер: заносит проекты и сметы (DECISIONS §13)
+  ACCOUNT_MANAGER // Продажник ком-блока: заносит проекты/сделки (DECISIONS §13-14)
+  PROJECT_MANAGER // Проджект: ведёт исполнение проекта (пара к продажнику)
   TREASURER_CFO // Казначей / CFO (видит всё)
   ACCOUNTANT // Бухгалтер (ставит «оплачено», ведёт ЗП)
   CHIEF_ACCOUNTANT // Гл. бухгалтер (согласует ЗП/дивиденды, коллегия)
@@ -109,6 +111,7 @@ model User {
   approvals            RequestApproval[]
   approvalSteps        ApprovalStep[] // шаги маршрута, где этот юзер — согласующий
   ownedProjects        Project[]         @relation("ProjectOwner")
+  managedProjects      Project[]         @relation("ProjectManager")
   responsibleIncomings Incoming[]        @relation("IncomingResponsible")
   auditLogs            AuditLog[]
   estimateChanges      EstimateVersion[]
@@ -230,6 +233,7 @@ enum ProjectStatus {
 
 // Проект — единица с балансом. Принадлежит ledger'у (7366/депозит/резерв/0175)
 // и клиенту. У клиента может быть несколько проектов (CLAUDE.md §6).
+// Ведётся ПАРОЙ (DECISIONS §14): продажник (owner) + проджект (projectManager).
 model Project {
   id          String        @id @default(cuid())
   entityId    String
@@ -242,13 +246,18 @@ model Project {
   serviceType ServiceType
   status      ProjectStatus @default(ACTIVE)
 
-  // Конфиденциальность: кто видит проект (владелец + департамент + CFO/бухгалтерия).
+  // Конфиденциальность: кто видит проект (владелец + проджект + департамент +
+  // CFO/бухгалтерия).
   ownerUserId  String?
   owner        User?       @relation("ProjectOwner", fields: [ownerUserId], references: [id])
+  projectManagerId String?
+  projectManager   User?   @relation("ProjectManager", fields: [projectManagerId], references: [id])
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
 
-  createdAt DateTime @default(now())
+  realizationDate DateTime? // дата реализации (кампания/мероприятие выходит)
+  completionDate  DateTime? // дата завершения проекта
+  createdAt DateTime @default(now()) // дата регистрации проекта
 
   recipients      Recipient[]
   estimate        Estimate? // одна смета на проект (Estimate.projectId @unique)
@@ -267,6 +276,38 @@ enum RecipientKind {
   OTHER
 }
 
+// ============================================================================
+//  БАЗА БЛОГЕРОВ (DECISIONS §14) — глобальный справочник с прайсами
+// ============================================================================
+
+// Блогер в справочнике компании (не привязан к проекту). Прайс по форматам —
+// база для расчёта скидки в смете сделки (скидка = прайс − заполненный гонорар).
+model Blogger {
+  id       String  @id @default(cuid())
+  entityId String
+  entity   Entity  @relation(fields: [entityId], references: [id])
+  name     String
+  isActive Boolean @default(true)
+
+  prices     BloggerPrice[]
+  recipients Recipient[]
+
+  @@unique([entityId, name])
+  @@map("bloggers")
+}
+
+// Цена блогера за формат (сторис/рилс/...). Обновляется блогерским блоком.
+model BloggerPrice {
+  id        String             @id @default(cuid())
+  bloggerId String
+  blogger   Blogger            @relation(fields: [bloggerId], references: [id], onDelete: Cascade)
+  kind      BloggerDeliverable
+  price     BigInt // тиыны
+
+  @@unique([bloggerId, kind])
+  @@map("blogger_prices")
+}
+
 // Получатель внутри проекта (блогер/подрядчик). Это «факт-сторона»: фактические
 // выплаты. Плановая сторона — в EstimateLine, связь по estimateLineId
 // (DECISIONS.md §6).
@@ -277,6 +318,9 @@ model Recipient {
   project   Project       @relation(fields: [projectId], references: [id])
   name      String
   kind      RecipientKind @default(BLOGGER)
+  // Связь со справочником блогеров (если получатель — блогер из базы).
+  bloggerId String?
+  blogger   Blogger?      @relation(fields: [bloggerId], references: [id])
 
   estimateLines   EstimateLine[]
   paymentRequests PaymentRequest[]
@@ -357,9 +401,15 @@ model EstimateLine {
   version       EstimateVersion  @relation(fields: [versionId], references: [id], onDelete: Cascade)
   kind          EstimateLineKind @default(RECIPIENT)
   title         String // имя получателя или название категории
-  plannedAmount BigInt // план, тиыны
+  plannedAmount BigInt // план, тиыны (заполненный гонорар)
   recipientId   String?
   recipient     Recipient?       @relation(fields: [recipientId], references: [id])
+
+  // Сделка (DECISIONS §14): форматы работ блогера + база цен на момент сделки.
+  deliverables      BloggerDeliverable[] // выбранные форматы
+  customDeliverable String? // текст для «прочее»
+  baseFee           BigInt? // прайс из базы (Σ по выбранным форматам) на момент сделки
+  // Скидка = baseFee − plannedAmount (если baseFee задан и больше гонорара).
 
   paymentRequests PaymentRequest[]
 
@@ -466,15 +516,16 @@ enum AttachmentKind {
   OTHER
 }
 
-// Формат работ блогера (мультивыбор в форме гонорара).
+// Формат работ блогера (мультивыбор в форме гонорара и в смете сделки).
 enum BloggerDeliverable {
   STORY // сторис
   STORY_SERIES // серия сторис
+  REELS // рилс
   VIDEO_POST // видеопост
   PHOTO_POST // фотопост
   TIKTOK // тикток
   YOUTUBE // ютуб
-  OTHER // прочее
+  OTHER // прочее (уточняется текстом)
 }
 
 // Заявка на платёж — ядро Системы А.

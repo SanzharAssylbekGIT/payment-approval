@@ -5,6 +5,7 @@ import { getProjectDetailForUser } from "@/lib/projects/queries";
 import { saveEstimate } from "@/lib/estimates/actions";
 import { formatTiyn, tiynToInputString } from "@/lib/money";
 import { SERVICE_LABELS } from "@/lib/accounting/labels";
+import { DELIVERABLE_LABELS } from "@/lib/requests/status";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EstimateForm } from "./EstimateForm";
 
@@ -17,7 +18,7 @@ const REASON_LABELS: Record<string, string> = {
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await requireRole("ACCOUNT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const user = await requireRole("ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
   const data = await getProjectDetailForUser(user, id);
   if (!data) notFound();
 
@@ -37,7 +38,12 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{SERVICE_LABELS[project.serviceType]}</span>
         </div>
         <p className="mt-1 text-sm text-gray-500">
-          Ответственный: {project.owner?.fullName ?? "не назначен"} · Леджер: {project.ledger.name}
+          Продажник: {project.owner?.fullName ?? "—"} · Проджект: {project.projectManager?.fullName ?? "—"} · Леджер: {project.ledger.name}
+        </p>
+        <p className="mt-0.5 text-xs text-gray-400">
+          Зарегистрирован {project.createdAt.toLocaleDateString("ru-RU")}
+          {project.realizationDate ? ` · реализация ${project.realizationDate.toLocaleDateString("ru-RU")}` : ""}
+          {project.completionDate ? ` · завершение ${project.completionDate.toLocaleDateString("ru-RU")}` : ""}
         </p>
       </div>
 
@@ -73,15 +79,31 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           {current && (
             <table className="mb-4 w-full text-sm">
               <tbody className="divide-y divide-gray-100">
-                {current.lines.map((l) => (
-                  <tr key={l.id}>
-                    <td className="py-1.5 text-gray-700">
-                      {l.title}
-                      {l.kind === "CATEGORY" && <span className="ml-2 text-xs text-gray-400">категория</span>}
-                    </td>
-                    <td className="py-1.5 text-right font-medium text-gray-900">{formatTiyn(l.plannedAmount)}</td>
-                  </tr>
-                ))}
+                {current.lines.map((l) => {
+                  const discount = l.baseFee != null && l.baseFee > l.plannedAmount ? l.baseFee - l.plannedAmount : 0n;
+                  return (
+                    <tr key={l.id}>
+                      <td className="py-1.5 text-gray-700">
+                        {l.title}
+                        {l.kind === "CATEGORY" && <span className="ml-2 text-xs text-gray-400">категория</span>}
+                        {l.deliverables.length > 0 && (
+                          <span className="ml-2 text-xs text-gray-400">
+                            {l.deliverables.map((d) => DELIVERABLE_LABELS[d]).join(", ")}
+                            {l.customDeliverable ? ` (${l.customDeliverable})` : ""}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 text-right">
+                        <span className="font-medium text-gray-900">{formatTiyn(l.plannedAmount)}</span>
+                        {discount > 0n && (
+                          <span className="ml-2 text-xs text-green-700" title={`Прайс по базе: ${formatTiyn(l.baseFee!)}`}>
+                            скидка {formatTiyn(discount)}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

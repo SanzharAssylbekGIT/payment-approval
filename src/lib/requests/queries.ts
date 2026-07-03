@@ -24,7 +24,7 @@ export async function getRequestFormData(user: AuthenticatedUser) {
       status: "ACTIVE",
       ...(seeAll
         ? {}
-        : { OR: [{ ownerUserId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
+        : { OR: [{ ownerUserId: user.id }, { projectManagerId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
     },
     include: {
       client: true,

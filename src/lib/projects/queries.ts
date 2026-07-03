@@ -10,7 +10,13 @@ import type { ServiceType } from "@prisma/client";
 function scopeFilter(user: AuthenticatedUser) {
   return canSeeEverything(user)
     ? {}
-    : { OR: [{ ownerUserId: user.id }, { departmentId: user.departmentId ?? "__none__" }] };
+    : {
+        OR: [
+          { ownerUserId: user.id },
+          { projectManagerId: user.id },
+          { departmentId: user.departmentId ?? "__none__" },
+        ],
+      };
 }
 
 // Список проектов одного вида услуги со статусами оплат и сметой.
@@ -69,6 +75,7 @@ export async function getProjectDetailForUser(user: AuthenticatedUser, projectId
     include: {
       client: true,
       owner: true,
+      projectManager: true,
       ledger: true,
       recipients: { orderBy: { name: "asc" } },
       estimate: {

@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { requireRole, canSeeEverything } from "@/lib/auth/rbac";
+import { requireRole, canSeeEverything, hasRole } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { getProjectsByService } from "@/lib/projects/queries";
-import { formatTiyn } from "@/lib/money";
-import { CreateProjectForm } from "../accounting/projects/CreateProjectForm";
+import { formatTiyn, tiynToInputString } from "@/lib/money";
+import { NewDealForm, type BloggerOpt } from "./NewDealForm";
 import type { ServiceType } from "@prisma/client";
 
 // Вкладки по видам услуг (DECISIONS §13.6).
@@ -19,33 +19,49 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<{ tab?: string }>;
 }) {
-  const user = await requireRole("ACCOUNT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const user = await requireRole("ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
   const sp = await searchParams;
   const active = TABS.find((t) => t.key === sp.tab) ?? TABS[0];
 
   const projects = await getProjectsByService(user, active.service);
   const seeAll = canSeeEverything(user);
+  // Заносить сделки могут продажники (ACCOUNT_MANAGER) и финансы; проджекты — только смотрят.
+  const canCreate = seeAll || hasRole(user, "ACCOUNT_MANAGER");
 
-  const clientOptions = await prisma.client.findMany({
-    where: { entityId: user.entityId },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true },
-  });
-  // Выбор владельца — только для «видящих всё»; аккаунт становится владельцем сам.
-  const userOptions = seeAll
-    ? await prisma.user.findMany({
-        where: { entityId: user.entityId, isActive: true },
-        orderBy: { fullName: "asc" },
-        select: { id: true, fullName: true },
-      })
-    : [];
+  const [clientOptions, pmOptions, bloggerRows, ownerOptions] = await Promise.all([
+    prisma.client.findMany({ where: { entityId: user.entityId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.user.findMany({
+      where: { entityId: user.entityId, isActive: true, roles: { some: { role: "PROJECT_MANAGER" } } },
+      orderBy: { fullName: "asc" },
+      select: { id: true, fullName: true },
+    }),
+    prisma.blogger.findMany({
+      where: { entityId: user.entityId, isActive: true },
+      include: { prices: true },
+      orderBy: { name: "asc" },
+    }),
+    seeAll
+      ? prisma.user.findMany({
+          where: { entityId: user.entityId, isActive: true, roles: { some: { role: "ACCOUNT_MANAGER" } } },
+          orderBy: { fullName: "asc" },
+          select: { id: true, fullName: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  // BigInt-прайсы → строки тенге для клиентского компонента.
+  const bloggers: BloggerOpt[] = bloggerRows.map((b) => ({
+    id: b.id,
+    name: b.name,
+    prices: Object.fromEntries(b.prices.map((p) => [p.kind, tiynToInputString(p.price)])),
+  }));
 
   return (
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Проекты</h1>
         <p className="mt-1 text-sm text-gray-500">
-          {seeAll ? "Все проекты компании" : "Ваши проекты и проекты вашего блока"} · смета, статусы оплат, выплаты
+          {seeAll ? "Все проекты компании" : "Ваши проекты и проекты вашего блока"} · сделка, смета, статусы оплат
         </p>
       </div>
 
@@ -64,11 +80,19 @@ export default async function ProjectsPage({
         ))}
       </div>
 
-      <CreateProjectForm clients={clientOptions} users={userOptions} defaultService={active.service} />
+      {canCreate && (
+        <NewDealForm
+          projectManagers={pmOptions}
+          clients={clientOptions}
+          bloggers={bloggers}
+          owners={ownerOptions}
+          defaultService={active.service}
+        />
+      )}
 
       {projects.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-          В разделе «{active.label}» пока нет проектов. Создайте первый.
+          В разделе «{active.label}» пока нет проектов.
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">

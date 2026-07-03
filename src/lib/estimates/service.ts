@@ -7,7 +7,7 @@ import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import { canSeeEverything, hasRole } from "@/lib/auth/permissions";
 import type { AuthenticatedUser } from "@/lib/auth/types";
-import type { EstimateChangeReason, Prisma } from "@prisma/client";
+import type { BloggerDeliverable, EstimateChangeReason, Prisma } from "@prisma/client";
 
 export class EstimateError extends Error {}
 
@@ -25,6 +25,11 @@ export interface EstimateLineInput {
   title: string;
   amountTiyn: bigint;
   isCategory: boolean; // категория себестоимости без конкретного получателя
+  // Сделка (DECISIONS §14): блогер из базы, форматы, прайс на момент сделки.
+  bloggerId?: string | null;
+  deliverables?: BloggerDeliverable[];
+  customDeliverable?: string | null;
+  baseFeeTiyn?: bigint | null; // Σ прайса по выбранным форматам (для скидки)
 }
 
 export interface EstimateInput {
@@ -43,7 +48,7 @@ export async function getScopedProject(user: AuthenticatedUser, projectId: strin
       entityId: user.entityId,
       ...(canSeeEverything(user)
         ? {}
-        : { OR: [{ ownerUserId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
+        : { OR: [{ ownerUserId: user.id }, { projectManagerId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
     },
     include: { ledger: true, client: true },
   });
@@ -104,24 +109,31 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
       },
     });
 
-    // Строки: для не-категорий находим/создаём получателя проекта по имени.
+    // Строки: для не-категорий находим/создаём получателя проекта по имени
+    // (+ связь со справочником блогеров, если строка пришла из базы цен).
     for (const l of input.lines) {
       let recipientId: string | null = null;
       if (!l.isCategory) {
         const name = l.title.trim();
         const existing = await db.recipient.findFirst({ where: { projectId: project.id, name } });
-        recipientId =
-          existing?.id ??
-          (
+        if (existing) {
+          recipientId = existing.id;
+          if (l.bloggerId && !existing.bloggerId) {
+            await db.recipient.update({ where: { id: existing.id }, data: { bloggerId: l.bloggerId } });
+          }
+        } else {
+          recipientId = (
             await db.recipient.create({
               data: {
                 entityId: user.entityId,
                 projectId: project.id,
                 name,
                 kind: project.serviceType === "INFLUENCE" ? "BLOGGER" : "CONTRACTOR",
+                bloggerId: l.bloggerId ?? null,
               },
             })
           ).id;
+        }
       }
       await db.estimateLine.create({
         data: {
@@ -130,6 +142,9 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
           title: l.title.trim(),
           plannedAmount: l.amountTiyn,
           recipientId,
+          deliverables: l.deliverables ?? [],
+          customDeliverable: l.customDeliverable ?? null,
+          baseFee: l.baseFeeTiyn ?? null,
         },
       });
     }

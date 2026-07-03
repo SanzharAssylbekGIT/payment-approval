@@ -129,7 +129,7 @@ async function assertAccessAndProject(user: AuthenticatedUser, expenseType: Expe
       entityId: user.entityId,
       ...(canSeeEverything(user)
         ? {}
-        : { OR: [{ ownerUserId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
+        : { OR: [{ ownerUserId: user.id }, { projectManagerId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
     },
   });
   if (!project) throw new RequestError("Проект не найден");

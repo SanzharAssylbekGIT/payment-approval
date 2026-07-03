@@ -53,13 +53,24 @@ const USERS: {
   { key: "elnura", email: "elnura.ordabaeva@bravetalents.com", fullName: "Эльнура Ордабаева", position: "Бухгалтер", dept: "FINANCE", roles: [RoleName.ACCOUNTANT, RoleName.REQUESTER] },
   { key: "ainur", email: "ainur.abduali@bravetalents.com", fullName: "Айнур Абдували", position: "Операционный директор", dept: "MANAGEMENT", roles: [RoleName.APPROVER, RoleName.TREASURY_BOARD] },
   { key: "kalamkas", email: "kalamkas.alimova@bravetalents.com", fullName: "Каламкас Алимова", position: "HR-директор", dept: "OFFICE", roles: [RoleName.APPROVER] },
-  { key: "azhar", email: "azhar.rakhat@bravetalents.com", fullName: "Ажар Рахат", position: "Коммерческий директор", dept: "COMMERCIAL", roles: [RoleName.APPROVER, RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
-  { key: "rakhima", email: "rakhima.turzhanova@bravetalents.com", fullName: "Рахима Туржанова", position: "Директор блогеров", dept: "BLOGGERS", roles: [RoleName.APPROVER] },
+  { key: "azhar", email: "azhar.rakhat@bravetalents.com", fullName: "Ажар Рахат", position: "Коммерческий директор (рук. продаж)", dept: "COMMERCIAL", roles: [RoleName.APPROVER, RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
+  // Продажники ком-блока (DECISIONS §14): заносят проекты/сделки.
+  { key: "meruyert", email: "meruyert.nurbolganova@bravetalents.com", fullName: "Меруерт Нурболганова", position: "Менеджер по продажам", dept: "COMMERCIAL", roles: [RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
+  { key: "aigerim", email: "aigerim.amangeldi@bravetalents.com", fullName: "Айгерим Амангелди", position: "Менеджер по продажам", dept: "COMMERCIAL", roles: [RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
+  { key: "ayaulym", email: "ayaulym.khairullina@bravetalents.com", fullName: "Аяулым Хайруллина", position: "Менеджер по продажам", dept: "COMMERCIAL", roles: [RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
+  { key: "islom", email: "islom.yunusmetov@bravetalents.com", fullName: "Ислом Юнусметов", position: "Менеджер по продажам", dept: "COMMERCIAL", roles: [RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
+  // Проджекты (DECISIONS §14): ведут исполнение, прикрепляются к проекту парой.
+  { key: "gulzira", email: "gulzira.dastanbek@bravetalents.com", fullName: "Гулзира Дастанбек", position: "Проджект-менеджер", dept: "BLOGGERS", roles: [RoleName.REQUESTER, RoleName.PROJECT_MANAGER] },
+  { key: "azhar_i", email: "azhar.iklassova@bravetalents.com", fullName: "Ажар Иклассова", position: "Проджект-менеджер", dept: "BLOGGERS", roles: [RoleName.REQUESTER, RoleName.PROJECT_MANAGER] },
+  { key: "ainura", email: "ainura.imanaliyeva@bravetalents.com", fullName: "Айнура Иманалиева", position: "Проджект-менеджер", dept: "BLOGGERS", roles: [RoleName.REQUESTER, RoleName.PROJECT_MANAGER] },
+  { key: "erke", email: "erke.myrzabek@bravetalents.com", fullName: "Акерке Мырзабек", position: "Проджект-менеджер", dept: "BLOGGERS", roles: [RoleName.REQUESTER, RoleName.PROJECT_MANAGER] },
+  { key: "alina", email: "alina.faber@bravetalents.com", fullName: "Алина Фабер", position: "Проджект-менеджер", dept: "BLOGGERS", roles: [RoleName.REQUESTER, RoleName.PROJECT_MANAGER] },
+  { key: "rakhima", email: "rakhima.turzhanova@bravetalents.com", fullName: "Рахима Туржанова", position: "Директор блогеров (рук. проджектов)", dept: "BLOGGERS", roles: [RoleName.APPROVER, RoleName.PROJECT_MANAGER] },
   { key: "kristiana", email: "kristiana.denisenko@bravetalents.com", fullName: "Кристиана Денисенко", position: "Креатив-лид", dept: "CREATIVE", roles: [RoleName.APPROVER, RoleName.REQUESTER] },
   { key: "dimash", email: "dimash@bravetalents.com", fullName: "Димаш", position: "Мл. линейный продюсер", dept: "PRODUCTION", roles: [RoleName.REQUESTER] },
   { key: "ramzat", email: "ramzat@bravetalents.com", fullName: "Рамзат", position: "Линейный продюсер", dept: "PRODUCTION", roles: [RoleName.REQUESTER] },
-  { key: "aisulu", email: "aisulu@bravetalents.com", fullName: "Айсулу", position: "Продюсер (Event/Spec)", dept: "COMMERCIAL", roles: [RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
-  { key: "tima", email: "tima@bravetalents.com", fullName: "Тима", position: "Продюсер (Event/Spec)", dept: "COMMERCIAL", roles: [RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
+  { key: "aisulu", email: "aisulu@bravetalents.com", fullName: "Айсулу", position: "Продюсер (Event/Spec)", dept: "COMMERCIAL", roles: [RoleName.REQUESTER] },
+  { key: "tima", email: "tima@bravetalents.com", fullName: "Тима", position: "Продюсер (Event/Spec)", dept: "COMMERCIAL", roles: [RoleName.REQUESTER] },
   { key: "zhaskairat", email: "zhaskairat@bravetalents.com", fullName: "Жаскайрат", position: "Ассистент", dept: "MANAGEMENT", roles: [RoleName.REQUESTER] },
   { key: "office_manager", email: "office.manager@bravetalents.com", fullName: "Офис-менеджер", position: "Офис-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
   { key: "it_manager", email: "it.manager@bravetalents.com", fullName: "IT-менеджер", position: "IT-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
@@ -153,6 +164,8 @@ async function main() {
         create: { userId: rec.id, role },
       });
     }
+    // Синхронизация точно по конфигу: роли, убранные из сида, снимаются.
+    await prisma.userRole.deleteMany({ where: { userId: rec.id, role: { notIn: u.roles } } });
   }
 
   // Expense types + approval routes
@@ -190,10 +203,34 @@ async function main() {
   }
 
   // --- Демо-данные для проверки прав (CLAUDE.md §14) ---
+  await seedBloggers();
   await seedDemo(userId, ledgerId);
   await seedBudget();
 
   console.log("Готово. Пользователей:", USERS.length, "| Видов расходов:", EXPENSE_TYPES.length);
+}
+
+// База блогеров с прайсами по форматам (DECISIONS §14) — основа расчёта скидок.
+async function seedBloggers() {
+  const BLOGGERS: { name: string; prices: Partial<Record<"STORY" | "STORY_SERIES" | "REELS" | "PHOTO_POST" | "TIKTOK", bigint>> }[] = [
+    { name: "Блогер Айбек", prices: { STORY: 15_000_000n, STORY_SERIES: 25_000_000n, REELS: 40_000_000n, TIKTOK: 30_000_000n } },
+    { name: "Блогер Динара", prices: { STORY: 10_000_000n, STORY_SERIES: 18_000_000n, REELS: 30_000_000n, PHOTO_POST: 12_000_000n } },
+    { name: "Блогер Санжик", prices: { STORY: 8_000_000n, REELS: 20_000_000n, TIKTOK: 15_000_000n } },
+  ];
+  for (const b of BLOGGERS) {
+    const rec = await prisma.blogger.upsert({
+      where: { entityId_name: { entityId: ENTITY_ID, name: b.name } },
+      update: {},
+      create: { entityId: ENTITY_ID, name: b.name },
+    });
+    for (const [kind, price] of Object.entries(b.prices)) {
+      await prisma.bloggerPrice.upsert({
+        where: { bloggerId_kind: { bloggerId: rec.id, kind: kind as never } },
+        update: { price },
+        create: { bloggerId: rec.id, kind: kind as never, price },
+      });
+    }
+  }
 }
 
 // Бюджет 6890 на 2026 (план по статьям). Факт считается по оплаченным заявкам.

@@ -73,9 +73,13 @@ export const ATTACHMENT_KIND_LABELS: Record<AttachmentKind, string> = {
 export const DELIVERABLE_LABELS: Record<BloggerDeliverable, string> = {
   STORY: "Сторис",
   STORY_SERIES: "Серия сторис",
+  REELS: "Рилс",
   VIDEO_POST: "Видеопост",
   PHOTO_POST: "Фотопост",
   TIKTOK: "Тикток",
   YOUTUBE: "Ютуб",
   OTHER: "Прочее",
 };
+
+// Форматы, предлагаемые в смете сделки (DECISIONS §14).
+export const DEAL_DELIVERABLES: BloggerDeliverable[] = ["STORY", "STORY_SERIES", "REELS", "PHOTO_POST", "TIKTOK", "OTHER"];
