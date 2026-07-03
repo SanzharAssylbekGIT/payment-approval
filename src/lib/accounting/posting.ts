@@ -4,8 +4,12 @@
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
 import type { AuthenticatedUser } from "@/lib/auth/types";
+import type { Prisma } from "@prisma/client";
 
 export class PostingError extends Error {}
+
+// Клиент БД: либо общий prisma, либо транзакционный (для атомарных цепочек).
+type Db = Prisma.TransactionClient | typeof prisma;
 
 // Пропорциональная доля: floor(value * num / den). Без float.
 function proportion(value: bigint, num: bigint, den: bigint): bigint {
@@ -15,24 +19,25 @@ function proportion(value: bigint, num: bigint, den: bigint): bigint {
 
 // Проводка выплаты по заявке (вызывается при отметке «оплачено»).
 // Создаёт отток со счёта вида расхода; для проектных — тегирует проект/получателя.
-// Возвращает созданную транзакцию.
-export async function postRequestPayout(user: AuthenticatedUser, requestId: string, occurredAt: Date) {
-  const req = await prisma.paymentRequest.findFirst({
+// Возвращает созданную транзакцию. Принимает транзакционный клиент (markPaid
+// оборачивает claim статуса + проводку в один $transaction).
+export async function postRequestPayout(user: AuthenticatedUser, requestId: string, occurredAt: Date, db: Db = prisma) {
+  const req = await db.paymentRequest.findFirst({
     where: { id: requestId, entityId: user.entityId },
     include: { expenseType: true },
   });
   if (!req) throw new PostingError("Заявка не найдена");
 
-  const account = await prisma.account.findUnique({
+  const account = await db.account.findUnique({
     where: { entityId_code: { entityId: user.entityId, code: accountCodeForKind(req.expenseType.accountKind) } },
   });
   if (!account) throw new PostingError("Счёт для вида расхода не найден");
 
   // Идемпотентность: не дублируем выплату по заявке.
-  const existing = await prisma.transaction.findFirst({ where: { paymentRequestId: req.id, kind: "PAYOUT" } });
+  const existing = await db.transaction.findFirst({ where: { paymentRequestId: req.id, kind: "PAYOUT" } });
   if (existing) return existing;
 
-  const tx = await prisma.transaction.create({
+  const tx = await db.transaction.create({
     data: {
       entityId: user.entityId,
       accountId: account.id,
@@ -110,6 +115,16 @@ export async function postIncomingAllocation(user: AuthenticatedUser, incomingId
   const mainLegProjectId = isSpec ? pid : null;
 
   await prisma.$transaction(async (db) => {
+    // Claim-guard от двойного разнесения (двойной клик / гонка / stale-вкладка):
+    // помечаем ALLOCATED атомарно; если поступление уже не UNALLOCATED —
+    // второй вызов не проведёт ничего. Под READ COMMITTED конкурирующая
+    // транзакция ждёт row lock, перечитывает предикат и получает count 0.
+    const claimed = await db.incoming.updateMany({
+      where: { id: incoming.id, status: "UNALLOCATED" },
+      data: { status: "ALLOCATED" },
+    });
+    if (claimed.count === 0) throw new PostingError("Поступление уже разнесено");
+
     const alloc = await db.allocation.create({
       data: { incomingId: incoming.id, estimateVersionId: version.id, vatAmount: vat, costAmount: cost, marginAmount: margin, ratioBps },
     });
@@ -129,8 +144,7 @@ export async function postIncomingAllocation(user: AuthenticatedUser, incomingId
       await db.transaction.create({ data: { ...base, accountId: costAcc.id, kind: "COST_TRANSFER", amount: cost, projectId: pid, description: "Себестоимость проекта" } });
     }
     // Маржа остаётся на основном счёте (отдельной транзакции нет — это остаток).
-
-    await db.incoming.update({ where: { id: incoming.id }, data: { status: "ALLOCATED" } });
+    // Статус ALLOCATED уже проставлен claim-guard'ом в начале транзакции.
   });
 
   await writeAudit({ entityId: user.entityId, userId: user.id, action: "INCOMING_ALLOCATED", targetType: "Incoming", targetId: incoming.id, comment: `Разнесено: НДС ${vat}, себест. ${cost}, маржа ${margin} (тиын)` });

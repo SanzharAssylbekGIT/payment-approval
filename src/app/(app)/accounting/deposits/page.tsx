@@ -5,8 +5,8 @@ import { formatTiyn } from "@/lib/money";
 import { LEDGER_LABELS } from "@/lib/accounting/labels";
 
 export default async function DepositsPage() {
-  await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
-  const ledgers = await getDepositsReserves();
+  const user = await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const ledgers = await getDepositsReserves(user.entityId);
 
   return (
     <div className="space-y-5">

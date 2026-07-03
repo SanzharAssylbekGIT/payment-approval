@@ -1,27 +1,42 @@
 import { prisma } from "@/lib/db";
 
-// План-факт по бюджету 6890 (CLAUDE.md §9). План — из BudgetLine, факт — из
-// фактически оплаченных заявок (статус PAID) по соответствующему виду расхода.
-// Дивиденды Алмаса — вне бюджета 6890 (исключаем).
+// План-факт по бюджету 6890 (CLAUDE.md §9). План — из BudgetLine. Факт — из
+// ПРОВЕДЁННЫХ выплат (Transaction kind=PAYOUT на счёте 6890) ЗА ПЕРИОД бюджета,
+// по виду расхода заявки. Дата факта = occurredAt (реальная дата списания),
+// а не дата заявки. Дивиденды Алмаса — вне бюджета (нет строки — нет факта).
 export async function getBudget6890(entityId: string, year: number, month: number | null = null) {
   const period = await prisma.budgetPeriod.findFirst({
     where: { entityId, year, month },
     include: { lines: { include: { expenseType: true } } },
   });
 
-  // Факт: суммы оплаченных заявок, сгруппированные по виду расхода (только 6890).
-  const paid = await prisma.paymentRequest.findMany({
-    where: { entityId, status: "PAID", expenseType: { accountKind: "MAIN", code: { not: "DIVIDENDS" } } },
-    select: { amount: true, expenseTypeId: true },
+  // Окно периода: конкретный месяц или весь год (month = null).
+  const from = month ? new Date(year, month - 1, 1) : new Date(year, 0, 1);
+  const to = month ? new Date(year, month, 1) : new Date(year + 1, 0, 1);
+
+  const payouts = await prisma.transaction.findMany({
+    where: {
+      entityId,
+      kind: "PAYOUT",
+      occurredAt: { gte: from, lt: to },
+      account: { kind: "MAIN" },
+      paymentRequestId: { not: null },
+    },
+    select: { amount: true, paymentRequest: { select: { expenseTypeId: true } } },
   });
   const factByType = new Map<string, bigint>();
-  for (const p of paid) factByType.set(p.expenseTypeId, (factByType.get(p.expenseTypeId) ?? 0n) + p.amount);
+  for (const p of payouts) {
+    const et = p.paymentRequest?.expenseTypeId;
+    if (!et) continue;
+    // Выплаты в журнале отрицательны — факт расходов берём по модулю.
+    factByType.set(et, (factByType.get(et) ?? 0n) + -p.amount);
+  }
 
   const lines = (period?.lines ?? [])
     .map((l) => {
       const planned = l.plannedAmount;
-      // Факт: сохранённый actualAmount (помесячный бюджет бэк-офиса) либо расчёт
-      // по оплаченным заявкам через expenseType.
+      // Факт: сохранённый actualAmount (помесячный бюджет бэк-офиса, заполняется
+      // сверкой по выписке) имеет приоритет; иначе — расчёт по выплатам за период.
       const actual = l.actualAmount > 0n ? l.actualAmount : l.expenseTypeId ? factByType.get(l.expenseTypeId) ?? 0n : 0n;
       const deviation = planned - actual;
       const pct = planned > 0n ? Number((actual * 100n) / planned) : 0;
@@ -33,4 +48,13 @@ export async function getBudget6890(entityId: string, year: number, month: numbe
   const totalFact = lines.reduce((s, l) => s + l.actual, 0n);
 
   return { year, month, hasPeriod: !!period, lines, totalPlan, totalFact, totalDeviation: totalPlan - totalFact, totalPct: totalPlan > 0n ? Number((totalFact * 100n) / totalPlan) : 0 };
+}
+
+// Список периодов, по которым заведён бюджет (для переключателя на странице).
+export async function getBudgetPeriods(entityId: string) {
+  return prisma.budgetPeriod.findMany({
+    where: { entityId },
+    orderBy: [{ year: "desc" }, { month: "desc" }],
+    select: { year: true, month: true },
+  });
 }

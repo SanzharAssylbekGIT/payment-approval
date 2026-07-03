@@ -1,16 +1,22 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/rbac";
+import { prisma } from "@/lib/db";
 import { getClientProjectTree } from "@/lib/accounting/queries";
 import { formatTiyn } from "@/lib/money";
 import { SERVICE_LABELS } from "@/lib/accounting/labels";
+import { CreateProjectForm } from "./CreateProjectForm";
 
 function balanceClass(b: bigint) {
   return b < 0n ? "text-red-600" : b > 0n ? "text-green-700" : "text-gray-500";
 }
 
 export default async function ProjectsPage() {
-  await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
-  const { clients, total } = await getClientProjectTree();
+  const user = await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const { clients, total } = await getClientProjectTree(user.entityId);
+  const [clientOptions, userOptions] = await Promise.all([
+    prisma.client.findMany({ where: { entityId: user.entityId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.user.findMany({ where: { entityId: user.entityId, isActive: true }, orderBy: { fullName: "asc" }, select: { id: true, fullName: true } }),
+  ]);
 
   return (
     <div className="space-y-5">
@@ -24,6 +30,8 @@ export default async function ProjectsPage() {
           <p className={`text-lg font-semibold ${balanceClass(total)}`}>{formatTiyn(total)}</p>
         </div>
       </div>
+
+      <CreateProjectForm clients={clientOptions} users={userOptions} />
 
       {clients.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">Нет проектов на 7366.</div>

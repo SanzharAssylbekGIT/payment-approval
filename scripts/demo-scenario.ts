@@ -49,14 +49,14 @@ async function main() {
   const bloggerFee = await etId("BLOGGER_FEE");
   const officeExp = await etId("OFFICE_EXP");
 
-  // 2. Гонорар Айбеку 350 000 ₸ — полностью проведён (оплачен).
-  await fullApprovePayPath(staff, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_aibek", amountTiyn: 35_000_000n, purpose: "Гонорар блогеру Айбек, проект «Наурыз»", priority: "RELATIONSHIP" }, [rakhima, ainur], cfo, accountant, true);
+  // 2. Гонорар Айбеку 350 000 ₸ (договор 350k × 100%) — полностью проведён (оплачен).
+  await fullApprovePayPath(staff, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_aibek", contractAmountTiyn: 35_000_000n, paymentPercent: 100, deliverables: ["STORY_SERIES"], paymentTiming: "POSTPAY", urgency: "MEDIUM" }, [rakhima, ainur], cfo, accountant, true);
 
-  // 3. Гонорар Динаре 250 000 ₸ — в реестре, ещё не оплачен.
-  await fullApprovePayPath(staff, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_dinara", amountTiyn: 25_000_000n, purpose: "Гонорар блогеру Динара, проект «Наурыз»", priority: "RELATIONSHIP" }, [rakhima, ainur], cfo, accountant, false);
+  // 3. Гонорар Динаре 250 000 ₸ (договор 250k × 100%) — в реестре, ещё не оплачен.
+  await fullApprovePayPath(staff, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_dinara", contractAmountTiyn: 25_000_000n, paymentPercent: 100, deliverables: ["VIDEO_POST"], paymentTiming: "PREPAY", urgency: "MEDIUM" }, [rakhima, ainur], cfo, accountant, false);
 
   // 4. Офисный расход 200 000 ₸ — оплачен (для факта в бюджете 6890).
-  await fullApprovePayPath(officeMgr, { expenseTypeId: officeExp, amountTiyn: 20_000_000n, purpose: "Подписка на сервис, июнь", priority: "FLEXIBLE" }, [kalamkas], cfo, accountant, true);
+  await fullApprovePayPath(officeMgr, { expenseTypeId: officeExp, amountTiyn: 20_000_000n, purpose: "Подписка на сервис, июнь", urgency: "NOT_URGENT" }, [kalamkas], cfo, accountant, true);
 
   // Итоги
   const balance = (await prisma.transaction.aggregate({ where: { projectId: "demo_project_nauryz" }, _sum: { amount: true } }))._sum.amount;

@@ -27,3 +27,14 @@ export function formatTiyn(tiyn: bigint): string {
   const kopeckStr = kopeck > 0n ? "," + kopeck.toString().padStart(2, "0") : "";
   return `${sign}${tengeStr}${kopeckStr} ₸`;
 }
+
+// Тиыны → строка для <input> в тенге: 35000000n → «350000», 5000050n → «50000.50».
+export function tiynToInputString(t: bigint | null | undefined): string {
+  if (t == null) return "";
+  const neg = t < 0n;
+  const abs = neg ? -t : t;
+  const tenge = abs / 100n;
+  const kop = abs % 100n;
+  const s = kop > 0n ? `${tenge}.${kop.toString().padStart(2, "0")}` : `${tenge}`;
+  return (neg ? "-" : "") + s;
+}

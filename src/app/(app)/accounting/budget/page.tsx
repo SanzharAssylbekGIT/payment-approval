@@ -1,26 +1,64 @@
 import Link from "next/link";
 import { requireRole } from "@/lib/auth/rbac";
-import { getBudget6890 } from "@/lib/budget/queries";
+import { getBudget6890, getBudgetPeriods } from "@/lib/budget/queries";
 import { formatTiyn } from "@/lib/money";
 
 const MONTHS = ["", "Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
 
-export default async function BudgetPage() {
+export default async function BudgetPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ y?: string; m?: string }>;
+}) {
   const user = await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
-  const budget = await getBudget6890(user.entityId, 2026, 5);
-  const periodLabel = budget.month ? `${MONTHS[budget.month]} ${budget.year}` : `${budget.year}`;
+  const sp = await searchParams;
+
+  // Период из URL; по умолчанию — текущий месяц, с фолбэком на годовой бюджет.
+  const now = new Date();
+  const year = Number(sp.y) || now.getFullYear();
+  const month = sp.m === "year" ? null : Number(sp.m) || now.getMonth() + 1;
+
+  let budget = await getBudget6890(user.entityId, year, month);
+  if (!budget.hasPeriod && month !== null) {
+    const yearly = await getBudget6890(user.entityId, year, null);
+    if (yearly.hasPeriod) budget = yearly;
+  }
+
+  const periods = await getBudgetPeriods(user.entityId);
+  const periodLabel = budget.month ? `${MONTHS[budget.month]} ${budget.year}` : `Год ${budget.year}`;
+  const factLabel = budget.month ? `Факт (${MONTHS[budget.month].toLowerCase()})` : "Факт (год)";
 
   return (
     <div className="space-y-5">
       <div>
         <Link href="/accounting" className="text-sm text-gray-500 hover:underline">← Учёт</Link>
         <h1 className="mt-1 text-xl font-semibold text-gray-900">Бюджет 6890 (бэк-офис) · {periodLabel}</h1>
-        <p className="text-sm text-gray-500">План по статьям. Факт за месяц добавляется из фактических расходов.</p>
+        <p className="text-sm text-gray-500">План по статьям. Факт — из проведённых выплат за период (или сверки по выписке).</p>
       </div>
 
+      {/* Переключатель периодов (по заведённым бюджетам) */}
+      {periods.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {periods.map((p) => {
+            const href = p.month ? `/accounting/budget?y=${p.year}&m=${p.month}` : `/accounting/budget?y=${p.year}&m=year`;
+            const label = p.month ? `${MONTHS[p.month]} ${p.year}` : `Год ${p.year}`;
+            const active = p.year === budget.year && p.month === budget.month;
+            return (
+              <Link
+                key={`${p.year}-${p.month}`}
+                href={href}
+                className={`rounded-full px-3 py-1 text-xs font-medium ${active ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}
+              >
+                {label}
+              </Link>
+            );
+          })}
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-3">
-        <Card label="План на месяц" value={formatTiyn(budget.totalPlan)} />
-        <Card label="Факт (май)" value={formatTiyn(budget.totalFact)} />
+        <Card label="План на период" value={formatTiyn(budget.totalPlan)} />
+        <Card label={factLabel} value={formatTiyn(budget.totalFact)} />
         <Card label="Освоение" value={`${budget.totalPct}%`} />
       </div>
 
@@ -33,7 +71,7 @@ export default async function BudgetPage() {
               <tr>
                 <th className="px-4 py-2.5 font-medium">Статья</th>
                 <th className="px-4 py-2.5 text-right font-medium">План</th>
-                <th className="px-4 py-2.5 text-right font-medium">Факт (май)</th>
+                <th className="px-4 py-2.5 text-right font-medium">{factLabel}</th>
                 <th className="px-4 py-2.5 text-right font-medium">Отклонение</th>
                 <th className="px-4 py-2.5 text-right font-medium">% освоения</th>
               </tr>
@@ -67,7 +105,7 @@ export default async function BudgetPage() {
           </table>
         </div>
       )}
-      <p className="text-xs text-gray-400">Факт пока не заполнен: следующий шаг — привязать фактические майские расходы 6890 к статьям бюджета.</p>
+      <p className="text-xs text-gray-400">Факт по статье: сверенный по выписке actualAmount (приоритет) либо сумма проведённых выплат за период по виду расхода.</p>
     </div>
   );
 }

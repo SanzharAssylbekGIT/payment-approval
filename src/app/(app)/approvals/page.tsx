@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireRole } from "@/lib/auth/rbac";
 import { getApprovalQueue } from "@/lib/requests/queries";
 import { formatTiyn } from "@/lib/money";
-import { PriorityBadge } from "@/components/StatusBadge";
+import { UrgencyBadge } from "@/components/StatusBadge";
 
 export default async function ApprovalsPage() {
   const user = await requireRole("APPROVER", "CHIEF_ACCOUNTANT", "TREASURER_CFO");
@@ -28,7 +28,7 @@ export default async function ApprovalsPage() {
                 <th className="px-4 py-2.5 font-medium">Автор</th>
                 <th className="px-4 py-2.5 font-medium">Вид / проект</th>
                 <th className="px-4 py-2.5 text-right font-medium">Сумма</th>
-                <th className="px-4 py-2.5 font-medium">Приоритет</th>
+                <th className="px-4 py-2.5 font-medium">Срочность</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
@@ -43,7 +43,7 @@ export default async function ApprovalsPage() {
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-gray-900">{formatTiyn(r.amount)}</td>
                   <td className="px-4 py-3">
-                    <PriorityBadge priority={r.priority} />
+                    <UrgencyBadge urgency={r.urgency} />
                   </td>
                   <td className="px-4 py-3 text-right">
                     <Link href={`/requests/${r.id}`} className="text-sm font-medium text-indigo-600 hover:underline">

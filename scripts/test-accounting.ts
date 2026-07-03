@@ -53,7 +53,7 @@ async function main() {
 
   // 3. Выплата получателю (35 000 000) → баланс проекта уменьшается
   const req = await prisma.paymentRequest.create({
-    data: { entityId: E, number: "PAYTEST-1", expenseTypeId: (await prisma.expenseType.findFirstOrThrow({ where: { code: "BLOGGER_FEE" } })).id, status: "IN_REGISTER", createdById: cfo.id, projectId: "demo_project_nauryz", recipientId: "demo_recipient_aibek", amount: 35_000_000n, purpose: "[PAYTEST] выплата", priority: "RELATIONSHIP" },
+    data: { entityId: E, number: "PAYTEST-1", expenseTypeId: (await prisma.expenseType.findFirstOrThrow({ where: { code: "BLOGGER_FEE" } })).id, status: "IN_REGISTER", createdById: cfo.id, projectId: "demo_project_nauryz", recipientId: "demo_recipient_aibek", amount: 35_000_000n, purpose: "[PAYTEST] выплата", urgency: "MEDIUM" },
   });
   await markPaid(accountant, req.id, new Date("2026-06-10"));
   eq(await projectBalance("demo_project_nauryz"), 90_000_000n - 35_000_000n, "баланс проекта после выплаты");
@@ -62,6 +62,30 @@ async function main() {
   // 4. Сходимость: сумма ВСЕХ транзакций = поступления − выплаты
   const all = await prisma.transaction.aggregate({ where: { entityId: E }, _sum: { amount: true } });
   eq(all._sum.amount ?? 0n, 150_000_000n - 35_000_000n, "сходимость: сумма всех транзакций = приток − отток");
+
+  // 5. Защита от двойного разнесения: повторный вызов НЕ создаёт дублей.
+  let doubleAllocBlocked = 0n;
+  try {
+    await postIncomingAllocation(cfo, inc1.id);
+  } catch {
+    doubleAllocBlocked = 1n;
+  }
+  eq(doubleAllocBlocked, 1n, "повторное разнесение отклонено");
+  const allocCount = await prisma.allocation.count({ where: { incomingId: inc1.id } });
+  eq(BigInt(allocCount), 1n, "разнесение одно (нет дубля Allocation)");
+  eq(await accountBalanceByCode(E, "6890"), 29_285_714n + 14_642_857n, "остаток 6890 не задвоился");
+
+  // 6. Защита от двойной оплаты: повторный markPaid отклонён, PAYOUT один.
+  let doublePaidBlocked = 0n;
+  try {
+    await markPaid(accountant, req.id, new Date("2026-06-11"));
+  } catch {
+    doublePaidBlocked = 1n;
+  }
+  eq(doublePaidBlocked, 1n, "повторная отметка «оплачено» отклонена");
+  const payoutCount = await prisma.transaction.count({ where: { paymentRequestId: req.id, kind: "PAYOUT" } });
+  eq(BigInt(payoutCount), 1n, "выплата одна (нет дубля PAYOUT)");
+  eq(await projectBalance("demo_project_nauryz"), 90_000_000n - 35_000_000n, "баланс проекта не задвоился");
 
   // Чистим тестовое
   await prisma.transaction.deleteMany({ where: { entityId: E } });

@@ -2,10 +2,12 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/auth/rbac";
 import { getRequestForUser, getRequestAudit } from "@/lib/requests/queries";
-import { submitRequest, cancelRequest } from "@/lib/requests/actions";
+import { cancelRequest } from "@/lib/requests/actions";
 import { formatTiyn } from "@/lib/money";
-import { StatusBadge, PriorityBadge } from "@/components/StatusBadge";
+import { StatusBadge, UrgencyBadge } from "@/components/StatusBadge";
+import { DELIVERABLE_LABELS, PAYMENT_TIMING_LABELS, ATTACHMENT_KIND_LABELS } from "@/lib/requests/status";
 import { ApproverPanel } from "./ApproverPanel";
+import { SubmitPanel } from "./SubmitPanel";
 
 const DECISION_LABELS: Record<string, string> = {
   APPROVED: "Одобрено",
@@ -32,7 +34,9 @@ export default async function RequestDetailPage({
   const isCurrentApprover = req.status === "PENDING_APPROVAL" && currentStep?.approverId === user.id;
 
   const canSubmit = isOwner && (req.status === "DRAFT" || req.status === "CLARIFICATION");
+  const canEdit = canSubmit;
   const canCancel = isOwner && !["APPROVED", "IN_REGISTER", "PAID", "CANCELLED", "REJECTED"].includes(req.status);
+  const isBloggerLike = req.contractAmount != null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -46,6 +50,22 @@ export default async function RequestDetailPage({
         </div>
       </div>
 
+      {/* Возвращена на доработку: показываем автору комментарий согласующего */}
+      {req.status === "CLARIFICATION" && isOwner && (() => {
+        const clarification = [...req.approvals].reverse().find((a) => a.decision === "CLARIFICATION_REQUESTED");
+        return (
+          <div className="rounded-xl border border-orange-200 bg-orange-50 p-4 text-sm">
+            <p className="font-medium text-orange-800">Заявка возвращена на доработку</p>
+            {clarification && (
+              <p className="mt-1 text-orange-700">
+                {clarification.approver.fullName}: «{clarification.comment || "без комментария"}»
+              </p>
+            )}
+            <p className="mt-1 text-xs text-orange-600">Отредактируйте заявку и отправьте её заново.</p>
+          </div>
+        );
+      })()}
+
       {/* Действия согласующего */}
       {isCurrentApprover && <ApproverPanel id={req.id} />}
 
@@ -53,14 +73,23 @@ export default async function RequestDetailPage({
       <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-gray-200 bg-white p-6 text-sm">
         <Field label="Вид расхода" value={req.expenseType.name} />
         <Field label="Сумма" value={<span className="font-semibold">{formatTiyn(req.amount)}</span>} />
-        <Field label="Приоритет" value={<PriorityBadge priority={req.priority} />} />
+        <Field label="Срочность" value={<UrgencyBadge urgency={req.urgency} />} />
         <Field label="Желаемая дата оплаты" value={req.desiredPayDate ? req.desiredPayDate.toLocaleDateString("ru-RU") : "—"} />
         {req.project && <Field label="Проект" value={`${req.project.client?.name ? req.project.client.name + " · " : ""}${req.project.name}`} />}
-        {req.recipient && <Field label="Получатель" value={req.recipient.name} />}
+        {req.recipient && <Field label={isBloggerLike ? "Блогер" : "Получатель"} value={req.recipient.name} />}
         {req.estimateLine && <Field label="Строка сметы" value={`${req.estimateLine.title} (план ${formatTiyn(req.estimateLine.plannedAmount)})`} />}
+        {req.contractAmount != null && <Field label="Сумма по договору" value={formatTiyn(req.contractAmount)} />}
+        {req.paymentPercent != null && <Field label="% от оплаты" value={`${req.paymentPercent}%`} />}
+        {req.paymentTiming && <Field label="Оплата" value={PAYMENT_TIMING_LABELS[req.paymentTiming]} />}
+        {isBloggerLike && <Field label="Услуга оказана" value={req.serviceRendered ? "Да" : "Нет"} />}
+        {req.deliverables.length > 0 && (
+          <div className="col-span-2">
+            <Field label="Форматы работ" value={req.deliverables.map((d) => DELIVERABLE_LABELS[d]).join(", ")} />
+          </div>
+        )}
         <Field label="Автор" value={req.createdBy.fullName} />
         <div className="col-span-2">
-          <Field label="Назначение платежа" value={req.purpose} />
+          <Field label="Назначение платежа" value={req.purpose ?? "—"} />
         </div>
         {req.comment && (
           <div className="col-span-2">
@@ -72,8 +101,9 @@ export default async function RequestDetailPage({
             <p className="text-xs text-gray-500">Вложения</p>
             <ul className="mt-1 space-y-1">
               {req.attachments.map((a) => (
-                <li key={a.id}>
-                  <a href={`/requests/${req.id}/attachment/${a.id}`} className="text-sm text-indigo-600 hover:underline">
+                <li key={a.id} className="text-sm">
+                  <span className="text-gray-500">{ATTACHMENT_KIND_LABELS[a.kind]}: </span>
+                  <a href={`/requests/${req.id}/attachment/${a.id}`} className="text-indigo-600 hover:underline">
                     {a.fileName}
                   </a>
                 </li>
@@ -84,15 +114,17 @@ export default async function RequestDetailPage({
       </div>
 
       {/* Действия автора */}
-      {(canSubmit || canCancel) && (
+      {(canSubmit || canEdit || canCancel) && (
         <div className="flex gap-2">
-          {canSubmit && (
-            <form action={submitRequest.bind(null, req.id)}>
-              <button className="rounded-lg bg-indigo-600 px-5 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-                Отправить на согласование
-              </button>
-            </form>
+          {canEdit && (
+            <Link
+              href={`/requests/${req.id}/edit`}
+              className="rounded-lg border border-gray-300 px-5 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              Редактировать
+            </Link>
           )}
+          {canSubmit && <SubmitPanel id={req.id} />}
           {canCancel && (
             <form action={cancelRequest.bind(null, req.id)}>
               <button className="rounded-lg border border-gray-300 px-5 py-2 text-sm text-gray-700 hover:bg-gray-50">

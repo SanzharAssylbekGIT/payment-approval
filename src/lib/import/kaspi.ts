@@ -28,10 +28,16 @@ export interface ParsedStatement {
   lines: ParsedStatementLine[];
 }
 
-// "2,000,000.00" → 200000000n тиын. Запятая = разделитель тысяч, точка = дробь.
+// "2,000,000.00" → 200000000n тиын. Поддерживает оба локальных формата:
+//   EN: запятая = тысячи, точка = дробь  («2,000,000.00»)
+//   RU: пробел = тысячи, запятая = дробь («2 000 000,00»)
+// Иначе «2 000 000,00» парсился бы как 200 000 000 ₸ — тихая инфляция ×100.
 function amountToTiyn(v: unknown): bigint {
   if (v == null || v === "") return 0n;
-  const s = String(v).replace(/[\s₸]/g, "").replace(/,/g, "");
+  let s = String(v).replace(/[\s₸ ]/g, "");
+  // Запятая как ДЕСЯТИЧНЫЙ разделитель: одна, без точки, 1-2 цифры после неё.
+  if (/^-?\d+,\d{1,2}$/.test(s)) s = s.replace(",", ".");
+  else s = s.replace(/,/g, ""); // иначе запятые — разделители тысяч
   if (!/^-?\d+(\.\d+)?$/.test(s)) return 0n;
   const neg = s.startsWith("-");
   const [int, frac = ""] = s.replace("-", "").split(".");

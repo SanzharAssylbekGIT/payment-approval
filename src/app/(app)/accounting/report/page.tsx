@@ -3,9 +3,15 @@ import { requireRole } from "@/lib/auth/rbac";
 import { getFinancialReport } from "@/lib/accounting/report";
 import { formatTiyn } from "@/lib/money";
 
-export default async function ReportPage() {
+export default async function ReportPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ y?: string }>;
+}) {
   const user = await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
-  const r = await getFinancialReport(user.entityId, 2026);
+  const sp = await searchParams;
+  const year = Number(sp.y) || new Date().getFullYear();
+  const r = await getFinancialReport(user.entityId, year);
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -13,6 +19,10 @@ export default async function ReportPage() {
         <Link href="/accounting" className="text-sm text-gray-500 hover:underline">← Учёт</Link>
         <h1 className="mt-1 text-xl font-semibold text-gray-900">Ежемесячный отчёт · {r.year}</h1>
         <p className="text-sm text-gray-500">Автоматизация ручного отчёта бухгалтерии.</p>
+        <div className="mt-2 flex gap-2 text-xs">
+          <Link href={`/accounting/report?y=${r.year - 1}`} className="rounded-full bg-gray-100 px-3 py-1 text-gray-600 hover:bg-gray-200">← {r.year - 1}</Link>
+          <Link href={`/accounting/report?y=${r.year + 1}`} className="rounded-full bg-gray-100 px-3 py-1 text-gray-600 hover:bg-gray-200">{r.year + 1} →</Link>
+        </div>
       </div>
 
       <section className="overflow-hidden rounded-xl border border-gray-200 bg-white">

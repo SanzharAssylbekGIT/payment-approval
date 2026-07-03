@@ -1,10 +1,11 @@
 import { prisma } from "@/lib/db";
 import { accountBalances, projectBalances, ledgerBalance } from "./balances";
 
-const ENTITY = "entity_bravetalents";
+// entityId ВСЕГДА передаётся явно (user.entityId) — никаких дефолтов:
+// мультиарендность и конфиденциальность на уровне запросов (CLAUDE.md §2, §10).
 
 // Сводка учёта: остатки по счетам + балансы леджеров (проекты/депозиты/резервы).
-export async function getAccountingOverview(entityId: string = ENTITY) {
+export async function getAccountingOverview(entityId: string) {
   const accounts = await accountBalances(entityId);
   const ledgers = await prisma.ledger.findMany({ where: { entityId }, orderBy: { kind: "asc" } });
   const ledgerRows = await Promise.all(
@@ -15,7 +16,7 @@ export async function getAccountingOverview(entityId: string = ENTITY) {
 
 // Дерево Клиент → Проект → Получатель с балансами на каждом уровне (ядро §6).
 // Только леджер 7366 (себестоимость проектов).
-export async function getClientProjectTree(entityId: string = ENTITY) {
+export async function getClientProjectTree(entityId: string) {
   const ledger = await prisma.ledger.findFirst({ where: { entityId, kind: "COST_7366" } });
   const projects = await prisma.project.findMany({
     where: { entityId, ledgerId: ledger?.id },
@@ -79,7 +80,7 @@ export async function getProjectDetail(entityId: string, projectId: string) {
 }
 
 // Депозиты и резервы: баланс + операции (приток/отток). DECISIONS §3, §7.
-export async function getDepositsReserves(entityId: string = ENTITY) {
+export async function getDepositsReserves(entityId: string) {
   const ledgers = await prisma.ledger.findMany({
     where: { entityId, kind: { in: ["DEPOSIT_INFLUENCE", "RESERVE_COMMERCIAL"] } },
   });
@@ -99,7 +100,7 @@ export async function getDepositsReserves(entityId: string = ENTITY) {
 }
 
 // Поступления от клиентов: список со статусом разнесения.
-export async function getIncomings(entityId: string = ENTITY) {
+export async function getIncomings(entityId: string) {
   return prisma.incoming.findMany({
     where: { entityId },
     include: { project: { include: { client: true } }, responsibleUser: true, allocations: true },

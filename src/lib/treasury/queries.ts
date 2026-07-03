@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/db";
 import { accountBalances, projectBalances } from "@/lib/accounting/balances";
-import type { Priority } from "@prisma/client";
+import type { Urgency } from "@prisma/client";
 
-// Порядок приоритета при дефиците (CLAUDE.md §8): по убыванию критичности.
-export const PRIORITY_RANK: Record<Priority, number> = {
-  CRITICAL: 1,
-  RELATIONSHIP: 2,
-  FLEXIBLE: 3,
+// Порядок при дефиците (CLAUDE.md §8): по убыванию срочности. Срочность заменила
+// прежний «приоритет-критичность»; налоги/ЗП имеют срочность URGENT по умолчанию.
+export const URGENCY_RANK: Record<Urgency, number> = {
+  URGENT: 1,
+  MEDIUM: 2,
+  NOT_URGENT: 3,
 };
 
 // Реестр на оплату: одобренные и помещённые в реестр заявки, отсортированы по
@@ -22,11 +23,12 @@ export async function getRegisterRows(entityId: string) {
   return requests
     .map((r) => ({
       ...r,
-      rank: PRIORITY_RANK[r.priority],
+      rank: URGENCY_RANK[r.urgency],
       // отрицательный баланс проекта = выплачиваем, хотя клиент ещё не заплатил
       projectNegative: r.projectId ? (balances.get(r.projectId) ?? 0n) < 0n : false,
     }))
-    .sort((a, b) => a.rank - b.rank || (a.desiredPayDate?.getTime() ?? 0) - (b.desiredPayDate?.getTime() ?? 0));
+    // Внутри срочности — по желаемой дате; заявки БЕЗ даты в конец (не вперёд).
+    .sort((a, b) => a.rank - b.rank || (a.desiredPayDate?.getTime() ?? Infinity) - (b.desiredPayDate?.getTime() ?? Infinity));
 }
 
 // Сводка казначейства: остатки на счетах + итоги к оплате.

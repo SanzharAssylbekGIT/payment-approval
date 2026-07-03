@@ -9,7 +9,7 @@ import { IncomingForm } from "./IncomingForm";
 
 export default async function IncomingsPage() {
   const user = await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
-  const incomings = await getIncomings();
+  const incomings = await getIncomings(user.entityId);
 
   // Итоги по журналу (для строки «Итого»).
   const totals = incomings.reduce(

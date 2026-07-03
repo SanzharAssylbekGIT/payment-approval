@@ -14,8 +14,8 @@ const SECTIONS = [
 ];
 
 export default async function AccountingPage() {
-  await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
-  const { accounts, ledgers } = await getAccountingOverview();
+  const user = await requireRole("TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const { accounts, ledgers } = await getAccountingOverview(user.entityId);
 
   return (
     <div className="space-y-6">

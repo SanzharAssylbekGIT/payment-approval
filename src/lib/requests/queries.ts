@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
-import { canSeeEverything } from "@/lib/auth/rbac";
+import { canSeeEverything, hasRole } from "@/lib/auth/rbac";
 import type { AuthenticatedUser } from "@/lib/auth/types";
+import type { RequestStatus } from "@prisma/client";
 
 // Данные для формы создания заявки: доступные виды расходов и проекты с
 // получателями/строками сметы. Конфиденциальность: виды расходов — своего
@@ -51,22 +52,41 @@ export async function getRequestFormData(user: AuthenticatedUser) {
   return {
     expenseTypes: expenseTypes.map((e) => ({
       id: e.id,
+      code: e.code,
       name: e.name,
       isProjectCost: e.isProjectCost,
       requiresEstimate: e.requiresEstimate,
-      defaultPriority: e.defaultPriority,
+      serviceType: e.serviceType,
+      defaultUrgency: e.defaultUrgency,
     })),
     projects: projectsForClient,
   };
 }
 
 // Заявки, созданные пользователем (заявитель видит только свои — CLAUDE.md §10).
-export async function getMyRequests(user: AuthenticatedUser) {
+// Опциональный фильтр по статусу (для вкладок/фильтра списка).
+export async function getMyRequests(user: AuthenticatedUser, status?: RequestStatus) {
   return prisma.paymentRequest.findMany({
-    where: { entityId: user.entityId, createdById: user.id },
+    where: { entityId: user.entityId, createdById: user.id, ...(status ? { status } : {}) },
     include: { expenseType: true, project: { include: { client: true } }, recipient: true },
     orderBy: { createdAt: "desc" },
   });
+}
+
+// Счётчики статусов для фильтра списка «Мои заявки».
+export async function getMyRequestStatusCounts(user: AuthenticatedUser) {
+  const rows = await prisma.paymentRequest.groupBy({
+    by: ["status"],
+    where: { entityId: user.entityId, createdById: user.id },
+    _count: true,
+  });
+  const counts: Partial<Record<RequestStatus, number>> = {};
+  let total = 0;
+  for (const r of rows) {
+    counts[r.status] = r._count;
+    total += r._count;
+  }
+  return { counts, total };
 }
 
 // Очередь согласования «на мне»: заявки на текущей ступени, где согласующий — я.
@@ -112,7 +132,10 @@ export async function getRequestForUser(user: AuthenticatedUser, id: string) {
 
   const isOwner = req.createdById === user.id;
   const isApprover = req.expenseType.route?.steps.some((s) => s.approverId === user.id) ?? false;
-  if (!isOwner && !isApprover && !canSeeEverything(user)) return null;
+  // Коллегия (TREASURY_BOARD) решает, что оплачивать, — ей нужен доступ к любой
+  // заявке из реестра/календаря (иначе 404 по ссылкам из казначейства).
+  const isBoard = hasRole(user, "TREASURY_BOARD");
+  if (!isOwner && !isApprover && !isBoard && !canSeeEverything(user)) return null;
 
   return req;
 }

@@ -6,16 +6,19 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { MarkPaidForm } from "./MarkPaidForm";
 
 export default async function PaymentsPage() {
-  await requireRole("ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const user = await requireRole("ACCOUNTANT", "CHIEF_ACCOUNTANT");
 
+  // Только заявки ИЗ РЕЕСТРА: жизненный цикл §12 — «В реестре» → «Оплачена».
+  // Оплата APPROVED-заявки в обход решения казначейства из UI недоступна
+  // (банковский импорт — отдельный путь, там факт списания первичен).
   const toPay = await prisma.paymentRequest.findMany({
-    where: { entityId: "entity_bravetalents", status: { in: ["IN_REGISTER", "APPROVED"] } },
+    where: { entityId: user.entityId, status: "IN_REGISTER" },
     include: { expenseType: true, project: { include: { client: true } }, recipient: true },
-    orderBy: [{ status: "asc" }, { desiredPayDate: "asc" }],
+    orderBy: [{ desiredPayDate: "asc" }],
   });
 
   const recentlyPaid = await prisma.paymentRequest.findMany({
-    where: { entityId: "entity_bravetalents", status: "PAID" },
+    where: { entityId: user.entityId, status: "PAID" },
     include: { expenseType: true, project: true },
     orderBy: { updatedAt: "desc" },
     take: 10,

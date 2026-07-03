@@ -382,7 +382,7 @@ model ExpenseType {
   isProjectCost    Boolean      @default(false) // проектная себестоимость (нужен проект)
   requiresEstimate Boolean      @default(false) // требует привязки к смете
   serviceType      ServiceType? // если проектный — какая услуга
-  defaultPriority  Priority     @default(FLEXIBLE)
+  defaultUrgency   Urgency      @default(NOT_URGENT)
   departmentId     String?
   department       Department?  @relation(fields: [departmentId], references: [id])
   isActive         Boolean      @default(true)
@@ -441,11 +441,39 @@ enum RequestStatus {
   CANCELLED // Отменена заявителем
 }
 
-// Приоритет при дефиците (CLAUDE.md §8).
-enum Priority {
-  CRITICAL // налоги, ЗП, обязательства с пенями
-  RELATIONSHIP // блогеры/подрядчики действующих проектов
-  FLEXIBLE // подписки, подарки — можно перенести
+// Срочность заявки — заявитель выбирает дедлайн в рабочих днях. Казначейство
+// сортирует реестр при дефиците по срочности + желаемой дате (заменила прежний
+// «приоритет-критичность»; для налогов/ЗП срочность по умолчанию — URGENT).
+enum Urgency {
+  URGENT // срочно — 1 рабочий день
+  MEDIUM // средней срочности — 2-3 рабочих дня
+  NOT_URGENT // не срочно — 5 рабочих дней
+}
+
+// Момент оплаты относительно оказания услуги (форма блогера).
+enum PaymentTiming {
+  PREPAY // предоплата
+  POSTPAY // постоплата
+}
+
+// Категория вложения к заявке.
+enum AttachmentKind {
+  CONTRACT // договор
+  INVOICE // счёт
+  ACT // акт выполненных работ (АВР), подписанный
+  RESIDENCY_CERT // сертификат налогового резидентства
+  OTHER
+}
+
+// Формат работ блогера (мультивыбор в форме гонорара).
+enum BloggerDeliverable {
+  STORY // сторис
+  STORY_SERIES // серия сторис
+  VIDEO_POST // видеопост
+  PHOTO_POST // фотопост
+  TIKTOK // тикток
+  YOUTUBE // ютуб
+  OTHER // прочее
 }
 
 // Заявка на платёж — ядро Системы А.
@@ -470,11 +498,18 @@ model PaymentRequest {
   estimateLineId String? // ссылка на плановую строку сметы (план-факт)
   estimateLine   EstimateLine? @relation(fields: [estimateLineId], references: [id])
 
-  amount         BigInt // сумма к оплате, тиыны
-  purpose        String // назначение платежа
-  priority       Priority  @default(FLEXIBLE)
+  amount         BigInt // сумма к оплате, тиыны (для блогера = contractAmount × paymentPercent%)
+  purpose        String? // назначение платежа (для блогера формируется из deliverables)
+  urgency        Urgency   @default(NOT_URGENT)
   desiredPayDate DateTime? // желаемая дата оплаты (для календаря)
   comment        String?
+
+  // --- Поля выплаты блогеру (вид расхода «Гонорары блогеров») ---
+  contractAmount  BigInt? // общая сумма по договору с блогером
+  paymentPercent  Int? // % от суммы договора, закрываемый этим платежом (0..100)
+  paymentTiming   PaymentTiming? // предоплата / постоплата
+  serviceRendered Boolean              @default(false) // услуга оказана (→ обязателен акт)
+  deliverables    BloggerDeliverable[] // форматы работ (мультивыбор)
 
   // Текущая ступень согласования (индекс order активной ступени).
   currentStepOrder Int @default(0)
@@ -523,12 +558,14 @@ model Attachment {
   id        String         @id @default(cuid())
   requestId String
   request   PaymentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  kind      AttachmentKind @default(OTHER)
   fileName  String
   filePath  String
   mimeType  String
   sizeBytes Int
   createdAt DateTime       @default(now())
 
+  @@index([requestId])
   @@map("attachments")
 }
 
@@ -681,6 +718,7 @@ model Transaction {
 
   @@index([accountId])
   @@index([projectId])
+  @@index([paymentRequestId])
   @@index([entityId, occurredAt])
   @@map("transactions")
 }

@@ -4,7 +4,7 @@
 //
 // Пароль всех демо-пользователей: "password123" (сменить в проде).
 
-import { PrismaClient, AccountKind, LedgerKind, RoleName, ServiceType, Priority, EstimateChangeReason, RecipientKind, EstimateLineKind, RequestStatus } from "@prisma/client";
+import { PrismaClient, AccountKind, LedgerKind, RoleName, ServiceType, Urgency, EstimateChangeReason, RecipientKind, EstimateLineKind, RequestStatus } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -74,23 +74,23 @@ const EXPENSE_TYPES: {
   isProjectCost: boolean;
   requiresEstimate: boolean;
   serviceType: ServiceType | null;
-  priority: Priority;
+  urgency: Urgency;
   dept: string;
   route: string[]; // ключи пользователей по порядку ступеней
 }[] = [
   // Проектные расходы (себестоимость)
-  { code: "BLOGGER_FEE", name: "Гонорары блогеров", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, priority: Priority.RELATIONSHIP, dept: "BLOGGERS", route: ["rakhima", "ainur"] },
-  { code: "PRODUCTION_BUDGET", name: "Продакшн-бюджет (Influence)", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, priority: Priority.RELATIONSHIP, dept: "PRODUCTION", route: ["ainur"] },
-  { code: "VIDEO_PHOTO", name: "Video/Photo production", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.VIDEO_PHOTO, priority: Priority.RELATIONSHIP, dept: "PRODUCTION", route: ["ainur"] },
-  { code: "EVENT", name: "Event", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.EVENT, priority: Priority.RELATIONSHIP, dept: "COMMERCIAL", route: ["sanzhar"] },
-  { code: "SPEC_PROJECT", name: "Spec project", accountKind: AccountKind.SPECPROJECT, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.SPEC_PROJECT, priority: Priority.RELATIONSHIP, dept: "COMMERCIAL", route: ["sanzhar"] },
+  { code: "BLOGGER_FEE", name: "Гонорары блогеров", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, urgency: Urgency.MEDIUM, dept: "BLOGGERS", route: ["rakhima", "ainur"] },
+  { code: "PRODUCTION_BUDGET", name: "Продакшн-бюджет (Influence)", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, urgency: Urgency.MEDIUM, dept: "PRODUCTION", route: ["ainur"] },
+  { code: "VIDEO_PHOTO", name: "Video/Photo production", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.VIDEO_PHOTO, urgency: Urgency.MEDIUM, dept: "PRODUCTION", route: ["ainur"] },
+  { code: "EVENT", name: "Event", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.EVENT, urgency: Urgency.MEDIUM, dept: "COMMERCIAL", route: ["sanzhar"] },
+  { code: "SPEC_PROJECT", name: "Spec project", accountKind: AccountKind.SPECPROJECT, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.SPEC_PROJECT, urgency: Urgency.MEDIUM, dept: "COMMERCIAL", route: ["sanzhar"] },
   // Прочие расходы (6890)
-  { code: "COMMERCIAL_EXP", name: "Расходы ком-блока", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, priority: Priority.FLEXIBLE, dept: "COMMERCIAL", route: ["azhar"] },
-  { code: "BLOGGERS_DEPT_EXP", name: "Расходы блог-департамента", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, priority: Priority.FLEXIBLE, dept: "BLOGGERS", route: ["rakhima"] },
-  { code: "CREATIVE_EXP", name: "Расходы креатива", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, priority: Priority.FLEXIBLE, dept: "CREATIVE", route: ["kristiana"] },
-  { code: "OFFICE_EXP", name: "Офисные расходы", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, priority: Priority.FLEXIBLE, dept: "OFFICE", route: ["kalamkas"] },
-  { code: "SALARY", name: "Зарплата", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, priority: Priority.CRITICAL, dept: "FINANCE", route: ["zhadyra"] },
-  { code: "DIVIDENDS", name: "Дивиденды Алмаса", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, priority: Priority.FLEXIBLE, dept: "MANAGEMENT", route: ["sanzhar", "zhadyra"] },
+  { code: "COMMERCIAL_EXP", name: "Расходы ком-блока", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "COMMERCIAL", route: ["azhar"] },
+  { code: "BLOGGERS_DEPT_EXP", name: "Расходы блог-департамента", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "BLOGGERS", route: ["rakhima"] },
+  { code: "CREATIVE_EXP", name: "Расходы креатива", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "CREATIVE", route: ["kristiana"] },
+  { code: "OFFICE_EXP", name: "Офисные расходы", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "OFFICE", route: ["kalamkas"] },
+  { code: "SALARY", name: "Зарплата", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.URGENT, dept: "FINANCE", route: ["zhadyra"] },
+  { code: "DIVIDENDS", name: "Дивиденды Алмаса", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "MANAGEMENT", route: ["sanzhar", "zhadyra"] },
 ];
 
 async function main() {
@@ -159,8 +159,8 @@ async function main() {
   for (const e of EXPENSE_TYPES) {
     const et = await prisma.expenseType.upsert({
       where: { entityId_code: { entityId: ENTITY_ID, code: e.code } },
-      update: { name: e.name, accountKind: e.accountKind, isProjectCost: e.isProjectCost, requiresEstimate: e.requiresEstimate, serviceType: e.serviceType ?? undefined, defaultPriority: e.priority, departmentId: deptId[e.dept] },
-      create: { entityId: ENTITY_ID, code: e.code, name: e.name, accountKind: e.accountKind, isProjectCost: e.isProjectCost, requiresEstimate: e.requiresEstimate, serviceType: e.serviceType ?? undefined, defaultPriority: e.priority, departmentId: deptId[e.dept] },
+      update: { name: e.name, accountKind: e.accountKind, isProjectCost: e.isProjectCost, requiresEstimate: e.requiresEstimate, serviceType: e.serviceType ?? undefined, defaultUrgency: e.urgency, departmentId: deptId[e.dept] },
+      create: { entityId: ENTITY_ID, code: e.code, name: e.name, accountKind: e.accountKind, isProjectCost: e.isProjectCost, requiresEstimate: e.requiresEstimate, serviceType: e.serviceType ?? undefined, defaultUrgency: e.urgency, departmentId: deptId[e.dept] },
     });
 
     const route = await prisma.approvalRoute.upsert({
@@ -168,11 +168,25 @@ async function main() {
       update: {},
       create: { entityId: ENTITY_ID, expenseTypeId: et.id },
     });
-    // Пересоздаём ступени, чтобы маршрут точно совпал с конфигом.
-    await prisma.approvalStep.deleteMany({ where: { routeId: route.id } });
-    await prisma.approvalStep.createMany({
-      data: e.route.map((key, idx) => ({ routeId: route.id, order: idx + 1, approverId: userId[key] })),
+    // Синхронизируем ступени БЕЗ полного deleteMany: у ступеней с историей
+    // согласований RESTRICT-FK (RequestApproval.stepId) — сид не должен падать
+    // и не должен рвать историю на живой базе.
+    const desired = e.route.map((key, idx) => ({ order: idx + 1, approverId: userId[key] }));
+    for (const step of desired) {
+      await prisma.approvalStep.upsert({
+        where: { routeId_order_approverId: { routeId: route.id, order: step.order, approverId: step.approverId } },
+        update: {},
+        create: { routeId: route.id, order: step.order, approverId: step.approverId },
+      });
+    }
+    // Ступени вне конфига удаляем, только если по ним нет решений.
+    const extras = await prisma.approvalStep.findMany({
+      where: { routeId: route.id, NOT: { OR: desired.map((d) => ({ order: d.order, approverId: d.approverId })) } },
+      include: { _count: { select: { approvals: true } } },
     });
+    for (const ex of extras) {
+      if (ex._count.approvals === 0) await prisma.approvalStep.delete({ where: { id: ex.id } });
+    }
   }
 
   // --- Демо-данные для проверки прав (CLAUDE.md §14) ---
@@ -290,7 +304,7 @@ async function seedDemo(userId: Record<string, string>, ledgerId: Record<string,
         estimateLineId: lineAibek.id,
         amount: 35_000_000n,
         purpose: "Гонорар за участие в проекте «Наурыз»",
-        priority: Priority.RELATIONSHIP,
+        urgency: Urgency.MEDIUM,
       },
     });
   }

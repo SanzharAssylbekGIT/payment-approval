@@ -3,13 +3,15 @@ import { requireRole } from "@/lib/auth/rbac";
 import { getRegisterRows, getTreasuryOverview, getCalendarData } from "@/lib/treasury/queries";
 import { addToRegisterAction, removeFromRegisterAction } from "@/lib/treasury/actions";
 import { formatTiyn } from "@/lib/money";
-import { StatusBadge, PriorityBadge } from "@/components/StatusBadge";
+import { StatusBadge, UrgencyBadge } from "@/components/StatusBadge";
 
 export default async function TreasuryPage() {
-  await requireRole("TREASURER_CFO", "TREASURY_BOARD");
-  const overview = await getTreasuryOverview("entity_bravetalents");
-  const rows = await getRegisterRows("entity_bravetalents");
-  const calendar = await getCalendarData("entity_bravetalents");
+  const user = await requireRole("TREASURER_CFO", "TREASURY_BOARD");
+  const overview = await getTreasuryOverview(user.entityId);
+  const rows = await getRegisterRows(user.entityId);
+  const calendar = await getCalendarData(user.entityId);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
   return (
     <div className="space-y-6">
@@ -49,10 +51,11 @@ export default async function TreasuryPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
                 <tr>
-                  <th className="px-4 py-2.5 font-medium">Приоритет</th>
+                  <th className="px-4 py-2.5 font-medium">Срочность</th>
                   <th className="px-4 py-2.5 font-medium">Заявка</th>
                   <th className="px-4 py-2.5 font-medium">Вид / проект</th>
                   <th className="px-4 py-2.5 text-right font-medium">Сумма</th>
+                  <th className="px-4 py-2.5 font-medium">Оплатить до</th>
                   <th className="px-4 py-2.5 font-medium">Статус</th>
                   <th className="px-4 py-2.5"></th>
                 </tr>
@@ -60,7 +63,7 @@ export default async function TreasuryPage() {
               <tbody className="divide-y divide-gray-100">
                 {rows.map((r) => (
                   <tr key={r.id} className={r.projectNegative ? "bg-amber-50/40" : ""}>
-                    <td className="px-4 py-3"><PriorityBadge priority={r.priority} /></td>
+                    <td className="px-4 py-3"><UrgencyBadge urgency={r.urgency} /></td>
                     <td className="px-4 py-3">
                       <Link href={`/requests/${r.id}`} className="font-medium text-indigo-600 hover:underline">{r.number}</Link>
                       {r.projectNegative && (
@@ -69,6 +72,16 @@ export default async function TreasuryPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-700">{r.expenseType.name}{r.project ? ` · ${r.project.name}` : ""}</td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900">{formatTiyn(r.amount)}</td>
+                    <td className="px-4 py-3">
+                      {r.desiredPayDate ? (
+                        <span className={r.desiredPayDate < today ? "font-medium text-red-600" : "text-gray-600"}>
+                          {r.desiredPayDate.toLocaleDateString("ru-RU")}
+                          {r.desiredPayDate < today && " ⚠"}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     <td className="px-4 py-3 text-right">
                       {r.status === "APPROVED" ? (

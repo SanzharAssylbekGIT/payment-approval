@@ -24,10 +24,13 @@ export async function GET(
 
   try {
     const data = await readFile(path.join(UPLOAD_DIR, attachment.filePath));
+    // attachment (не inline) + nosniff: загруженный HTML/SVG со скриптом не
+    // должен исполняться в origin приложения (stored XSS через вложение).
     return new NextResponse(new Uint8Array(data), {
       headers: {
         "Content-Type": attachment.mimeType,
-        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(attachment.fileName)}`,
+        "Content-Disposition": `attachment; filename*=UTF-8''${encodeURIComponent(attachment.fileName)}`,
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch {

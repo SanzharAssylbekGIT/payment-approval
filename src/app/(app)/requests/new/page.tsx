@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth/rbac";
 import { getRequestFormData } from "@/lib/requests/queries";
+import { createRequest } from "@/lib/requests/actions";
 import { RequestForm } from "./RequestForm";
 
 export default async function NewRequestPage() {
@@ -21,7 +22,7 @@ export default async function NewRequestPage() {
           Для вашего подразделения не настроены виды расходов. Обратитесь к администратору.
         </div>
       ) : (
-        <RequestForm expenseTypes={expenseTypes} projects={projects} />
+        <RequestForm expenseTypes={expenseTypes} projects={projects} action={createRequest} />
       )}
     </div>
   );

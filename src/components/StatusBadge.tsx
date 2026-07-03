@@ -1,5 +1,5 @@
-import type { RequestStatus, Priority } from "@prisma/client";
-import { STATUS_LABELS, STATUS_STYLES, PRIORITY_LABELS, PRIORITY_STYLES } from "@/lib/requests/status";
+import type { RequestStatus, Urgency } from "@prisma/client";
+import { STATUS_LABELS, STATUS_STYLES, URGENCY_LABELS, URGENCY_STYLES } from "@/lib/requests/status";
 
 export function StatusBadge({ status }: { status: RequestStatus }) {
   return (
@@ -9,10 +9,10 @@ export function StatusBadge({ status }: { status: RequestStatus }) {
   );
 }
 
-export function PriorityBadge({ priority }: { priority: Priority }) {
+export function UrgencyBadge({ urgency }: { urgency: Urgency }) {
   return (
-    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${PRIORITY_STYLES[priority]}`}>
-      {PRIORITY_LABELS[priority]}
+    <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-medium ${URGENCY_STYLES[urgency]}`}>
+      {URGENCY_LABELS[urgency]}
     </span>
   );
 }

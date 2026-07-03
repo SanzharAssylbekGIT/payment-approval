@@ -9,7 +9,7 @@ export default async function DashboardPage() {
   const seeAll = canSeeEverything(user);
 
   // Финансовые показатели (оборот/маржа) — только для CFO/бухгалтерии.
-  const fin = seeAll ? await getFinancialReport(user.entityId, 2026) : null;
+  const fin = seeAll ? await getFinancialReport(user.entityId, new Date().getFullYear()) : null;
 
   // Конфиденциальность: заявитель видит только свои заявки. Полные счётчики —
   // только тем, кто «видит всё» (CFO/бухгалтерия).

@@ -67,6 +67,58 @@ export async function createIncoming(_prev: IncomingState, formData: FormData): 
   return { ok: true };
 }
 
+const projectSchema = z.object({
+  name: z.string().min(1, "Укажите название проекта"),
+  clientName: z.string().min(1, "Укажите клиента"),
+  serviceType: z.enum(["INFLUENCE", "VIDEO_PHOTO", "EVENT", "SPEC_PROJECT"]),
+  ownerUserId: z.string().optional(),
+});
+
+export type ProjectState = { error?: string; ok?: boolean };
+
+// Создание проекта ответственным (CFO/бухгалтерия). Услуга определяет леджер:
+// спецпроект → 0175, остальное → 7366. Владелец задаёт департамент — от него
+// зависит, кто увидит проект в форме заявки (конфиденциальность, CLAUDE.md §10).
+export async function createProject(_prev: ProjectState, formData: FormData): Promise<ProjectState> {
+  const user = await requireUser();
+  if (!hasRole(user, "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO")) return { error: "Нет прав" };
+
+  const parsed = projectSchema.safeParse({
+    name: formData.get("name"),
+    clientName: formData.get("clientName"),
+    serviceType: formData.get("serviceType"),
+    ownerUserId: formData.get("ownerUserId") || undefined,
+  });
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
+  const d = parsed.data;
+
+  const ledgerKind = d.serviceType === "SPEC_PROJECT" ? "SPECPROJECT_0175" : "COST_7366";
+  const ledger = await prisma.ledger.findFirst({ where: { entityId: user.entityId, kind: ledgerKind } });
+  if (!ledger) return { error: "Не найден леджер для этой услуги" };
+
+  const clientName = d.clientName.trim();
+  const existingClient = await prisma.client.findFirst({ where: { entityId: user.entityId, name: clientName } });
+  const clientId = existingClient?.id ?? (await prisma.client.create({ data: { entityId: user.entityId, name: clientName } })).id;
+
+  const owner = d.ownerUserId ? await prisma.user.findFirst({ where: { id: d.ownerUserId, entityId: user.entityId } }) : null;
+
+  const project = await prisma.project.create({
+    data: {
+      entityId: user.entityId,
+      ledgerId: ledger.id,
+      clientId,
+      name: d.name.trim(),
+      serviceType: d.serviceType,
+      ownerUserId: owner?.id ?? null,
+      departmentId: owner?.departmentId ?? null,
+    },
+  });
+  await writeAudit({ entityId: user.entityId, userId: user.id, action: "PROJECT_CREATED", targetType: "Project", targetId: project.id, comment: `Создан проект «${project.name}»` });
+
+  revalidateAccounting();
+  return { ok: true };
+}
+
 // Разнести поступление по смете (НДС/себестоимость/маржа). DECISIONS §4.
 export async function allocateIncoming(id: string): Promise<void> {
   const user = await requireUser();
