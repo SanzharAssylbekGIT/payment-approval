@@ -81,6 +81,7 @@ enum AuthProvider {
 enum RoleName {
   REQUESTER // Заявитель
   APPROVER // Согласующий
+  ACCOUNT_MANAGER // Аккаунт-менеджер: заносит проекты и сметы (DECISIONS §13)
   TREASURER_CFO // Казначей / CFO (видит всё)
   ACCOUNTANT // Бухгалтер (ставит «оплачено», ведёт ЗП)
   CHIEF_ACCOUNTANT // Гл. бухгалтер (согласует ЗП/дивиденды, коллегия)

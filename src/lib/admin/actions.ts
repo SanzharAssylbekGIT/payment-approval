@@ -9,7 +9,7 @@ import { requireUser } from "@/lib/auth/rbac";
 import { hasRole } from "@/lib/auth/permissions";
 import { writeAudit } from "@/lib/audit";
 
-const ALL_ROLES: RoleName[] = ["REQUESTER", "APPROVER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURY_BOARD", "ADMIN"];
+const ALL_ROLES: RoleName[] = ["REQUESTER", "APPROVER", "ACCOUNT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURY_BOARD", "ADMIN"];
 
 const createUserSchema = z.object({
   email: z.string().email("Некорректный e-mail"),

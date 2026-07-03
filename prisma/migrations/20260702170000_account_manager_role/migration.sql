@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "RoleName" ADD VALUE 'ACCOUNT_MANAGER';

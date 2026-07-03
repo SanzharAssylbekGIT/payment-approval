@@ -76,12 +76,14 @@ const projectSchema = z.object({
 
 export type ProjectState = { error?: string; ok?: boolean };
 
-// Создание проекта ответственным (CFO/бухгалтерия). Услуга определяет леджер:
-// спецпроект → 0175, остальное → 7366. Владелец задаёт департамент — от него
-// зависит, кто увидит проект в форме заявки (конфиденциальность, CLAUDE.md §10).
+// Создание проекта: аккаунт-менеджеры (DECISIONS §13) + CFO/бухгалтерия.
+// Услуга определяет леджер: спецпроект → 0175, остальное → 7366. Владелец задаёт
+// департамент — от него зависит видимость проекта (конфиденциальность, §10).
+// Аккаунт-менеджер всегда становится владельцем сам (не может назначить чужого).
 export async function createProject(_prev: ProjectState, formData: FormData): Promise<ProjectState> {
   const user = await requireUser();
-  if (!hasRole(user, "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO")) return { error: "Нет прав" };
+  if (!hasRole(user, "ACCOUNT_MANAGER", "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO")) return { error: "Нет прав" };
+  const seeAll = hasRole(user, "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO");
 
   const parsed = projectSchema.safeParse({
     name: formData.get("name"),
@@ -100,7 +102,8 @@ export async function createProject(_prev: ProjectState, formData: FormData): Pr
   const existingClient = await prisma.client.findFirst({ where: { entityId: user.entityId, name: clientName } });
   const clientId = existingClient?.id ?? (await prisma.client.create({ data: { entityId: user.entityId, name: clientName } })).id;
 
-  const owner = d.ownerUserId ? await prisma.user.findFirst({ where: { id: d.ownerUserId, entityId: user.entityId } }) : null;
+  const ownerId = seeAll ? d.ownerUserId : user.id;
+  const owner = ownerId ? await prisma.user.findFirst({ where: { id: ownerId, entityId: user.entityId } }) : null;
 
   const project = await prisma.project.create({
     data: {

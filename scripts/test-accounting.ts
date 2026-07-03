@@ -3,6 +3,7 @@
 import { PrismaClient } from "@prisma/client";
 import { postIncomingAllocation } from "@/lib/accounting/posting";
 import { markPaid } from "@/lib/treasury/service";
+import { saveEstimateVersion } from "@/lib/estimates/service";
 import { accountBalanceByCode, projectBalance } from "@/lib/accounting/balances";
 
 const prisma = new PrismaClient();
@@ -86,6 +87,37 @@ async function main() {
   const payoutCount = await prisma.transaction.count({ where: { paymentRequestId: req.id, kind: "PAYOUT" } });
   eq(BigInt(payoutCount), 1n, "выплата одна (нет дубля PAYOUT)");
   eq(await projectBalance("demo_project_nauryz"), 90_000_000n - 35_000_000n, "баланс проекта не задвоился");
+
+  // 7. Ревизия сметы (DECISIONS §1.1): себестоимость 600k → 500k,
+  //    уже разнесённые поступления пере-разносятся ADJUSTMENT-проводками.
+  await saveEstimateVersion(cfo, "demo_project_nauryz", {
+    clientPriceGrossTiyn: 100_000_000n,
+    depositTiyn: 0n,
+    lines: [
+      { title: "Блогер Айбек", amountTiyn: 30_000_000n, isCategory: false },
+      { title: "Блогер Динара", amountTiyn: 20_000_000n, isCategory: false },
+    ],
+    reason: "PROJECT_REDUCED",
+    comment: "[TEST] сокращение",
+  });
+  // Новая себестоимость: полная оплата → 50M, 50% → 25M. Итого на 7366: 75M − 35M выплата.
+  eq(await accountBalanceByCode(E, "7366"), 75_000_000n - 35_000_000n, "пересчёт: 7366 по новой смете");
+  eq(await accountBalanceByCode(E, "3098"), 10_714_286n + 5_357_143n, "пересчёт: НДС не изменился");
+  eq(await accountBalanceByCode(E, "6890"), 39_285_714n + 19_642_857n, "пересчёт: маржа выросла на дельту себестоимости");
+  const total2 = await prisma.transaction.aggregate({ where: { entityId: E }, _sum: { amount: true } });
+  eq(total2._sum.amount ?? 0n, 150_000_000n - 35_000_000n, "пересчёт: общая сумма не изменилась (дельты в ноль)");
+
+  // Возвращаем демо-смету к исходной (v3), чтобы dev-данные не «плыли» от тестов.
+  await saveEstimateVersion(cfo, "demo_project_nauryz", {
+    clientPriceGrossTiyn: 100_000_000n,
+    depositTiyn: 0n,
+    lines: [
+      { title: "Блогер Айбек", amountTiyn: 35_000_000n, isCategory: false },
+      { title: "Блогер Динара", amountTiyn: 25_000_000n, isCategory: false },
+    ],
+    reason: "OTHER",
+    comment: "[TEST] возврат к исходной",
+  });
 
   // Чистим тестовое
   await prisma.transaction.deleteMany({ where: { entityId: E } });

@@ -15,6 +15,32 @@ const DECISION_LABELS: Record<string, string> = {
   CLARIFICATION_REQUESTED: "Запрошено уточнение",
 };
 
+// Тайминги (DECISIONS §13.7): какие события аудита показываем в хронометраже.
+const TIMELINE_LABELS: Record<string, string> = {
+  REQUEST_CREATED: "Создана",
+  REQUEST_SUBMITTED: "Отправлена на согласование",
+  REQUEST_UPDATED: "Отредактирована",
+  REQUEST_STEP_APPROVED: "Одобрена (ступень)",
+  REQUEST_FULLY_APPROVED: "Одобрена полностью",
+  REQUEST_REJECTED: "Отклонена",
+  REQUEST_CLARIFICATION: "Возвращена на доработку",
+  ADDED_TO_REGISTER: "Включена в реестр",
+  REMOVED_FROM_REGISTER: "Убрана из реестра",
+  MARKED_PAID: "Оплачена",
+  REQUEST_CANCELLED: "Отменена",
+};
+
+// «2 д 3 ч» / «4 ч 12 мин» / «8 мин» — длительность между событиями.
+function formatDuration(ms: number): string {
+  const min = Math.round(ms / 60000);
+  if (min < 1) return "< 1 мин";
+  if (min < 60) return `${min} мин`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h} ч${min % 60 ? ` ${min % 60} мин` : ""}`;
+  const d = Math.floor(h / 24);
+  return `${d} д${h % 24 ? ` ${h % 24} ч` : ""}`;
+}
+
 export default async function RequestDetailPage({
   params,
 }: {
@@ -180,6 +206,40 @@ export default async function RequestDetailPage({
           </ul>
         </div>
       )}
+
+      {/* Тайминги (DECISIONS §13.7): хронометраж от подачи до оплаты */}
+      {(() => {
+        const events = audit.filter((l) => TIMELINE_LABELS[l.action]);
+        if (events.length < 2) return null;
+        const paid = events.find((e) => e.action === "MARKED_PAID");
+        const submitted = events.find((e) => e.action === "REQUEST_SUBMITTED");
+        return (
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-medium text-gray-700">Тайминги</h2>
+              {paid && submitted && (
+                <span className="text-xs text-gray-500">
+                  от подачи до оплаты: <span className="font-semibold text-gray-800">{formatDuration(paid.createdAt.getTime() - submitted.createdAt.getTime())}</span>
+                </span>
+              )}
+            </div>
+            <ol className="space-y-1.5">
+              {events.map((e, i) => (
+                <li key={e.id} className="flex items-baseline gap-3 text-sm">
+                  <span className="w-36 shrink-0 text-xs text-gray-400">{e.createdAt.toLocaleString("ru-RU")}</span>
+                  <span className="text-gray-800">{TIMELINE_LABELS[e.action]}</span>
+                  {e.user && <span className="text-xs text-gray-400">· {e.user.fullName}</span>}
+                  {i > 0 && (
+                    <span className="ml-auto shrink-0 text-xs text-gray-400">
+                      +{formatDuration(e.createdAt.getTime() - events[i - 1].createdAt.getTime())}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </div>
+        );
+      })()}
 
       {/* Аудит */}
       <div className="rounded-xl border border-gray-200 bg-white p-6">

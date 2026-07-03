@@ -13,9 +13,11 @@ const SERVICE_KEYS = Object.keys(SERVICE_LABELS) as ServiceType[];
 export function CreateProjectForm({
   clients,
   users,
+  defaultService,
 }: {
   clients: { id: string; name: string }[];
-  users: { id: string; fullName: string }[];
+  users: { id: string; fullName: string }[]; // пусто → владельцем станет создающий
+  defaultService?: ServiceType;
 }) {
   const [state, formAction, pending] = useActionState(createProject, initialState);
   const formRef = useRef<HTMLFormElement>(null);
@@ -44,7 +46,7 @@ export function CreateProjectForm({
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Услуга *</label>
-            <select name="serviceType" required defaultValue="" className={inputCls}>
+            <select name="serviceType" required defaultValue={defaultService ?? ""} className={inputCls}>
               <option value="">— выберите —</option>
               {SERVICE_KEYS.map((s) => (
                 <option key={s} value={s}>
@@ -53,18 +55,22 @@ export function CreateProjectForm({
               ))}
             </select>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Ответственный</label>
-            <select name="ownerUserId" defaultValue="" className={inputCls}>
-              <option value="">— не назначен —</option>
-              {users.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.fullName}
-                </option>
-              ))}
-            </select>
-            <p className="mt-1 text-xs text-gray-400">От департамента ответственного зависит, кто увидит проект в форме заявки.</p>
-          </div>
+          {users.length > 0 ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700">Ответственный</label>
+              <select name="ownerUserId" defaultValue="" className={inputCls}>
+                <option value="">— не назначен —</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.fullName}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-400">От департамента ответственного зависит, кто увидит проект в форме заявки.</p>
+            </div>
+          ) : (
+            <p className="pt-7 text-xs text-gray-400">Вы станете ответственным за проект.</p>
+          )}
         </div>
 
         {state.error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{state.error}</p>}
