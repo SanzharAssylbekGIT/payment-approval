@@ -153,11 +153,19 @@ async function assertAccessAndProject(user: AuthenticatedUser, expenseType: Expe
   if (!expenseType.isProjectCost) return;
 
   if (!input.projectId) throw new RequestError("Для этого вида расхода нужен проект");
-  // Конфиденциальность (§10): проект должен быть в области видимости пользователя
-  // — единое правило projectScopeFilter (как в getRequestFormData), иначе можно
-  // привязаться к чужому проекту в обход формы.
+  // Конфиденциальность (§10): проект — в области видимости пользователя ЛИБО
+  // соответствует направлению разрешённого ему вида расхода (право на вид
+  // расхода уже проверено выше по департаменту). Зеркало getRequestFormData.
+  const scope = projectScopeFilter(user);
+  const scopeOr = Array.isArray(scope.OR) ? scope.OR : scope.OR ? [scope.OR] : [];
   const project = await prisma.project.findFirst({
-    where: { id: input.projectId, entityId: user.entityId, ...projectScopeFilter(user) },
+    where: {
+      id: input.projectId,
+      entityId: user.entityId,
+      ...(canSeeEverything(user)
+        ? {}
+        : { OR: [...scopeOr, ...(expenseType.serviceType ? [{ serviceType: expenseType.serviceType }] : [])] }),
+    },
   });
   if (!project) throw new RequestError("Проект не найден");
   // Проект должен соответствовать услуге вида расхода.

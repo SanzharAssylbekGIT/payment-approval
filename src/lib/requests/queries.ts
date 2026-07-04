@@ -20,11 +20,22 @@ export async function getRequestFormData(user: AuthenticatedUser) {
     orderBy: { name: "asc" },
   });
 
+  // Для ПОДАЧИ ЗАЯВКИ видимость шире вкладки «Проекты»: заявитель видит ещё и
+  // проекты направлений, по которым ему разрешены виды расходов (продюсеры
+  // Рамзат/Димаш подают по всем VP/Influence-проектам, не будучи их
+  // владельцами). Ровно это же правило проверяет сервер в assertAccessAndProject.
+  const requestServiceTypes = [
+    ...new Set(expenseTypes.filter((e) => e.isProjectCost && e.serviceType).map((e) => e.serviceType!)),
+  ];
+  const scope = projectScopeFilter(user);
+  const scopeOr = Array.isArray(scope.OR) ? scope.OR : scope.OR ? [scope.OR] : [];
   const projects = await prisma.project.findMany({
     where: {
       entityId: user.entityId,
       status: "ACTIVE",
-      ...projectScopeFilter(user),
+      ...(canSeeEverything(user)
+        ? {}
+        : { OR: [...scopeOr, ...(requestServiceTypes.length ? [{ serviceType: { in: requestServiceTypes } }] : [])] }),
     },
     include: {
       client: true,
