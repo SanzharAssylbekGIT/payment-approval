@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { canSeeEverything, hasRole } from "@/lib/auth/rbac";
+import { DELIVERABLE_LABELS } from "./status";
 import type { AuthenticatedUser } from "@/lib/auth/types";
 import type { RequestStatus } from "@prisma/client";
 
@@ -43,7 +44,10 @@ export async function getRequestFormData(user: AuthenticatedUser) {
     recipients: p.recipients.map((r) => ({ id: r.id, name: r.name })),
     estimateLines: (p.estimate?.currentVersion?.lines ?? []).map((l) => ({
       id: l.id,
+      kind: l.kind,
       title: l.title,
+      // Утверждённая опция сделки: текст из прайса/вручную либо стандартные форматы.
+      option: l.customDeliverable ?? (l.deliverables.length ? l.deliverables.map((d) => DELIVERABLE_LABELS[d]).join(", ") : null),
       plannedAmount: l.plannedAmount.toString(),
       recipientId: l.recipientId,
     })),

@@ -11,9 +11,10 @@ import type { BloggerDeliverable, EstimateChangeReason, Prisma } from "@prisma/c
 
 export class EstimateError extends Error {}
 
-// НДС Казахстана 12% в цене: vat = gross × 12/112 (округление half-up до тиына).
+// НДС Казахстана 16% в цене (ставка 2026): vat = gross × 16/116 (half-up до тиына).
+// Ставка меняется ТОЛЬКО здесь и в живых расчётах форм (16/116).
 export function vatFromGross(gross: bigint): bigint {
-  return (gross * 12n + 56n) / 112n;
+  return (gross * 16n + 58n) / 116n;
 }
 
 function proportion(value: bigint, num: bigint, den: bigint): bigint {

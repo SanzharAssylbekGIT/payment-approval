@@ -29,27 +29,40 @@ async function main() {
   const cfo = await authUser("sanzhar.assylbek@bravetalents.com");
   const accountant = await authUser("symbat.otesh@bravetalents.com");
 
-  // Смета Наурыз: gross 100 000 000, НДС 10 714 286, себест. 60 000 000, маржа 29 285 714.
+  // Нормализация: свежая версия сметы под ТЕКУЩУЮ ставку НДС (vatFromGross),
+  // чтобы тест не зависел от версии, оставшейся в БД от прошлых запусков.
+  await saveEstimateVersion(cfo, "demo_project_nauryz", {
+    clientPriceGrossTiyn: 100_000_000n,
+    depositTiyn: 0n,
+    lines: [
+      { title: "Блогер Айбек", amountTiyn: 35_000_000n, isCategory: false },
+      { title: "Блогер Динара", amountTiyn: 25_000_000n, isCategory: false },
+    ],
+    reason: "OTHER",
+    comment: "[TEST] нормализация под текущую ставку НДС",
+  });
+
+  // Смета Наурыз: gross 100 000 000, НДС 13 793 103 (16/116), себест. 60 000 000, маржа 26 206 897.
 
   // 1. Полная оплата
   const inc1 = await prisma.incoming.create({ data: { entityId: E, amount: 100_000_000n, receivedAt: new Date("2026-06-01"), projectId: "demo_project_nauryz", status: "UNALLOCATED" } });
   const a1 = await postIncomingAllocation(cfo, inc1.id);
-  eq(a1.vatAmount, 10_714_286n, "полная оплата: НДС");
+  eq(a1.vatAmount, 13_793_103n, "полная оплата: НДС");
   eq(a1.costAmount, 60_000_000n, "полная оплата: себестоимость");
-  eq(a1.marginAmount, 29_285_714n, "полная оплата: маржа");
+  eq(a1.marginAmount, 26_206_897n, "полная оплата: маржа");
   eq(a1.vatAmount + a1.costAmount + a1.marginAmount, 100_000_000n, "части сходятся к поступлению");
 
-  eq(await accountBalanceByCode(E, "6890"), 29_285_714n, "остаток 6890 = маржа");
-  eq(await accountBalanceByCode(E, "3098"), 10_714_286n, "остаток 3098 = НДС");
+  eq(await accountBalanceByCode(E, "6890"), 26_206_897n, "остаток 6890 = маржа");
+  eq(await accountBalanceByCode(E, "3098"), 13_793_103n, "остаток 3098 = НДС");
   eq(await accountBalanceByCode(E, "7366"), 60_000_000n, "остаток 7366 = себестоимость");
   eq(await projectBalance("demo_project_nauryz"), 60_000_000n, "баланс проекта = себестоимость");
 
   // 2. Частичная оплата 50%
   const inc2 = await prisma.incoming.create({ data: { entityId: E, amount: 50_000_000n, receivedAt: new Date("2026-06-05"), projectId: "demo_project_nauryz", status: "UNALLOCATED" } });
   const a2 = await postIncomingAllocation(cfo, inc2.id);
-  eq(a2.vatAmount, 5_357_143n, "50%: НДС пропорционально");
+  eq(a2.vatAmount, 6_896_551n, "50%: НДС пропорционально");
   eq(a2.costAmount, 30_000_000n, "50%: себестоимость пропорционально");
-  eq(a2.marginAmount, 14_642_857n, "50%: маржа (с остатком округления)");
+  eq(a2.marginAmount, 13_103_449n, "50%: маржа (с остатком округления)");
   eq(a2.vatAmount + a2.costAmount + a2.marginAmount, 50_000_000n, "50%: части сходятся");
 
   // 3. Выплата получателю (35 000 000) → баланс проекта уменьшается
@@ -74,7 +87,7 @@ async function main() {
   eq(doubleAllocBlocked, 1n, "повторное разнесение отклонено");
   const allocCount = await prisma.allocation.count({ where: { incomingId: inc1.id } });
   eq(BigInt(allocCount), 1n, "разнесение одно (нет дубля Allocation)");
-  eq(await accountBalanceByCode(E, "6890"), 29_285_714n + 14_642_857n, "остаток 6890 не задвоился");
+  eq(await accountBalanceByCode(E, "6890"), 26_206_897n + 13_103_449n, "остаток 6890 не задвоился");
 
   // 6. Защита от двойной оплаты: повторный markPaid отклонён, PAYOUT один.
   let doublePaidBlocked = 0n;
@@ -102,8 +115,8 @@ async function main() {
   });
   // Новая себестоимость: полная оплата → 50M, 50% → 25M. Итого на 7366: 75M − 35M выплата.
   eq(await accountBalanceByCode(E, "7366"), 75_000_000n - 35_000_000n, "пересчёт: 7366 по новой смете");
-  eq(await accountBalanceByCode(E, "3098"), 10_714_286n + 5_357_143n, "пересчёт: НДС не изменился");
-  eq(await accountBalanceByCode(E, "6890"), 39_285_714n + 19_642_857n, "пересчёт: маржа выросла на дельту себестоимости");
+  eq(await accountBalanceByCode(E, "3098"), 13_793_103n + 6_896_551n, "пересчёт: НДС не изменился");
+  eq(await accountBalanceByCode(E, "6890"), 36_206_897n + 18_103_449n, "пересчёт: маржа выросла на дельту себестоимости");
   const total2 = await prisma.transaction.aggregate({ where: { entityId: E }, _sum: { amount: true } });
   eq(total2._sum.amount ?? 0n, 150_000_000n - 35_000_000n, "пересчёт: общая сумма не изменилась (дельты в ноль)");
 

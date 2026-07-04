@@ -28,7 +28,7 @@ function fmt(n: number): string {
 }
 
 // Форма сметы: v1 или ревизия (versionNo > 1 → причина обязательна).
-// Расчёт: НДС = 12/112 от цены; себестоимость = сумма строк; маржа = без НДС − себест.
+// Расчёт: НДС = 16/116 от цены; себестоимость = сумма строк; маржа = без НДС − себест.
 export function EstimateForm({
   action,
   versionNo,
@@ -48,7 +48,7 @@ export function EstimateForm({
 
   const totals = useMemo(() => {
     const g = parseTenge(gross);
-    const vat = (g * 12) / 112;
+    const vat = (g * 16) / 116;
     const net = g - vat;
     const cost = lines.reduce((s, l) => s + parseTenge(l.amount), 0);
     return { vat, net, cost, margin: net - cost };
@@ -137,7 +137,7 @@ export function EstimateForm({
 
       {/* Живой расчёт */}
       <div className="grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-4">
-        <div><p className="text-xs text-gray-500">НДС (12/112)</p><p className="font-medium">{fmt(totals.vat)}</p></div>
+        <div><p className="text-xs text-gray-500">НДС (16/116)</p><p className="font-medium">{fmt(totals.vat)}</p></div>
         <div><p className="text-xs text-gray-500">Без НДС</p><p className="font-medium">{fmt(totals.net)}</p></div>
         <div><p className="text-xs text-gray-500">Себестоимость</p><p className="font-medium">{fmt(totals.cost)}</p></div>
         <div>

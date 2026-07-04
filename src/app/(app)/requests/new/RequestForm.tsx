@@ -4,7 +4,8 @@ import { useActionState, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CreateState } from "@/lib/requests/actions";
 import { URGENCY_LABELS, URGENCY_HINTS, DELIVERABLE_LABELS, PAYMENT_TIMING_LABELS, ATTACHMENT_KIND_LABELS, BLOGGER_FEE_CODE } from "@/lib/requests/status";
-import { minPayDateForUrgency, toDateInputValue } from "@/lib/requests/urgency";
+import { minPayDateForUrgency, toDateInputValue, nextThursday, thursdayOnOrAfter } from "@/lib/requests/urgency";
+import { tiynToInputString } from "@/lib/money";
 import type { Urgency, PaymentTiming, BloggerDeliverable, ServiceType, AttachmentKind } from "@prisma/client";
 
 interface ExpenseTypeOpt {
@@ -22,7 +23,7 @@ interface ProjectOpt {
   clientName: string | null;
   serviceType: string;
   recipients: { id: string; name: string }[];
-  estimateLines: { id: string; title: string; plannedAmount: string; recipientId: string | null }[];
+  estimateLines: { id: string; kind: string; title: string; option: string | null; plannedAmount: string; recipientId: string | null }[];
 }
 
 // Начальные значения для режима редактирования (все суммы — строки в тенге).
@@ -75,6 +76,8 @@ export function RequestForm({
 
   const [expenseTypeId, setExpenseTypeId] = useState(initial?.expenseTypeId ?? "");
   const [projectId, setProjectId] = useState(initial?.projectId ?? "");
+  const [recipientId, setRecipientId] = useState(initial?.recipientId ?? "");
+  const [estimateLineId, setEstimateLineId] = useState(initial?.estimateLineId ?? "");
   const [urgency, setUrgency] = useState<Urgency>(initial?.urgency ?? "NOT_URGENT");
   const [desiredPayDate, setDesiredPayDate] = useState(initial?.desiredPayDate ?? "");
   const [contractAmount, setContractAmount] = useState(initial?.contractAmount ?? "");
@@ -96,16 +99,81 @@ export function RequestForm({
   );
   const selectedProject = useMemo(() => projects.find((p) => p.id === projectId), [projects, projectId]);
 
-  // Минимальная желаемая дата по срочности. Считаем только на клиенте (после
-  // маунта) — иначе SSR (часовой пояс сервера) и гидрация могут разойтись.
-  const minDate = mounted ? toDateInputValue(minPayDateForUrgency(urgency)) : "";
+  // Утверждённые опции проекта (строки сметы блогер × опция) — для дропдауна
+  // «Формат работ» гонорара блогера. Если блогер выбран — только его опции.
+  const projectHasOptions = useMemo(
+    () => (selectedProject?.estimateLines ?? []).some((l) => l.kind === "RECIPIENT"),
+    [selectedProject],
+  );
+  const approvedOptions = useMemo(() => {
+    const lines = (selectedProject?.estimateLines ?? []).filter((l) => l.kind === "RECIPIENT");
+    return recipientId ? lines.filter((l) => l.recipientId === recipientId) : lines;
+  }, [selectedProject, recipientId]);
 
-  // При смене срочности чистим дату, только если она стала раньше нового минимума.
+  // Плановые выплаты блогерам — по четвергам (реестр раз в неделю); «Срочно» —
+  // единственный способ вне четверга.
+  const isBloggerPlan = isBlogger && urgency !== "URGENT";
+
+  // Минимальная желаемая дата. Считаем только на клиенте (после маунта) —
+  // иначе SSR (часовой пояс сервера) и гидрация могут разойтись.
+  const minDate = mounted
+    ? isBloggerPlan
+      ? toDateInputValue(new Date())
+      : toDateInputValue(minPayDateForUrgency(urgency))
+    : "";
+
+  function parseDateStr(s: string): Date | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+  }
+
+  // При смене срочности: блогер-плановая — дата примагничивается к четвергу;
+  // иначе чистим дату, только если она стала раньше нового минимума.
   function onUrgencyChange(next: Urgency) {
     setUrgency(next);
+    if (isBlogger && next !== "URGENT") {
+      setDesiredPayDate((cur) => {
+        const dt = cur ? parseDateStr(cur) : null;
+        if (!dt || dt.getDay() !== 4 || dt < new Date(new Date().setHours(0, 0, 0, 0))) {
+          return toDateInputValue(nextThursday());
+        }
+        return cur;
+      });
+      return;
+    }
     const nm = toDateInputValue(minPayDateForUrgency(next));
     setDesiredPayDate((cur) => (cur && cur < nm ? "" : cur));
   }
+
+  // Дата: для блогер-плановой не-четверг сдвигается на ближайший четверг.
+  function onDateChange(v: string) {
+    if (isBloggerPlan && v) {
+      const dt = parseDateStr(v);
+      if (dt && dt.getDay() !== 4) {
+        setDesiredPayDate(toDateInputValue(thursdayOnOrAfter(dt)));
+        return;
+      }
+    }
+    setDesiredPayDate(v);
+  }
+
+  // Выбор утверждённой опции: подставляем блогера строки и (если пусто)
+  // сумму по договору = гонорар из сметы.
+  function onOptionChange(v: string) {
+    setEstimateLineId(v);
+    const line = selectedProject?.estimateLines.find((l) => l.id === v);
+    if (line?.recipientId) setRecipientId(line.recipientId);
+    if (line && !contractAmount.trim()) setContractAmount(tiynToInputString(BigInt(line.plannedAmount)));
+  }
+
+  // Черновики/префилл блогера: срочность приводим к «плановая/срочно», дата —
+  // ближайший четверг, если не задана. Только на клиенте после маунта.
+  useEffect(() => {
+    if (!mounted || !isBlogger) return;
+    if (urgency !== "URGENT" && urgency !== "NOT_URGENT") setUrgency("NOT_URGENT");
+    if (urgency !== "URGENT" && !desiredPayDate) setDesiredPayDate(toDateInputValue(nextThursday()));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, isBlogger]);
 
   // Предпросмотр суммы к оплате блогеру = договор × %.
   const bloggerAmountPreview = useMemo(() => {
@@ -172,8 +240,13 @@ export function RequestForm({
             onChange={(e) => {
               setExpenseTypeId(e.target.value);
               const t = expenseTypes.find((x) => x.id === e.target.value);
-              if (t) setUrgency(t.defaultUrgency);
+              const blogger = t?.code === BLOGGER_FEE_CODE;
+              if (t) setUrgency(blogger ? "NOT_URGENT" : t.defaultUrgency);
+              // Блогеры: плановая выплата — ближайший четверг (авто).
+              if (blogger) setDesiredPayDate(toDateInputValue(nextThursday()));
               setProjectId("");
+              setRecipientId("");
+              setEstimateLineId("");
             }}
             className={inputCls}
           >
@@ -191,7 +264,17 @@ export function RequestForm({
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700">Проект *</label>
-              <select name="projectId" required value={projectId} onChange={(e) => setProjectId(e.target.value)} className={inputCls}>
+              <select
+                name="projectId"
+                required
+                value={projectId}
+                onChange={(e) => {
+                  setProjectId(e.target.value);
+                  setRecipientId("");
+                  setEstimateLineId("");
+                }}
+                className={inputCls}
+              >
                 <option value="">— выберите проект —</option>
                 {visibleProjects.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -208,7 +291,18 @@ export function RequestForm({
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="block text-sm font-medium text-gray-700">{isBlogger ? "Блогер" : "Получатель"}</label>
-                  <select name="recipientId" className={inputCls} defaultValue={initial?.recipientId ?? ""}>
+                  <select
+                    name="recipientId"
+                    className={inputCls}
+                    value={recipientId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setRecipientId(v);
+                      // Выбранная опция другого блогера больше не подходит.
+                      const line = selectedProject.estimateLines.find((l) => l.id === estimateLineId);
+                      if (line && v && line.recipientId && line.recipientId !== v) setEstimateLineId("");
+                    }}
+                  >
                     <option value="">— не указан —</option>
                     {selectedProject.recipients.map((r) => (
                       <option key={r.id} value={r.id}>
@@ -239,23 +333,54 @@ export function RequestForm({
         {/* === Блок блогера === */}
         {isBlogger ? (
           <div className="space-y-4 rounded-lg border border-indigo-100 bg-indigo-50/40 p-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Форматы работ</label>
-              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {DELIVERABLE_KEYS.map((d) => (
-                  <label key={d} className="flex items-center gap-2 text-sm text-gray-700">
-                    <input
-                      type="checkbox"
-                      name="deliverables"
-                      value={d}
-                      defaultChecked={initial?.deliverables?.includes(d) ?? false}
-                      className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                    />
-                    {DELIVERABLE_LABELS[d]}
-                  </label>
-                ))}
+            {/* Формат работ: утверждённая опция из сметы проекта (дропдаун).
+                Фолбэк на чекбоксы — только для старых проектов без строк сметы. */}
+            {selectedProject && projectHasOptions ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Формат работ — утверждённая опция *</label>
+                <select
+                  name="estimateLineId"
+                  required
+                  value={estimateLineId}
+                  onChange={(e) => onOptionChange(e.target.value)}
+                  className={inputCls}
+                >
+                  <option value="">— выберите опцию из сметы проекта —</option>
+                  {approvedOptions.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.title}
+                      {l.option ? ` — ${l.option}` : ""} — {formatTengeInput(Number(l.plannedAmount) / 100)}
+                    </option>
+                  ))}
+                </select>
+                <p className="mt-1 text-xs text-gray-400">
+                  Опции подтягиваются из утверждённой сметы проекта{recipientId ? " для выбранного блогера" : ""}; выбор опции подставит блогера и гонорар.
+                </p>
+                {approvedOptions.length === 0 && (
+                  <p className="mt-1 text-xs text-amber-600">У выбранного блогера нет опций в смете — выберите другого или проверьте смету проекта.</p>
+                )}
               </div>
-            </div>
+            ) : selectedProject ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Форматы работ</label>
+                <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                  {DELIVERABLE_KEYS.map((d) => (
+                    <label key={d} className="flex items-center gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        name="deliverables"
+                        value={d}
+                        defaultChecked={initial?.deliverables?.includes(d) ?? false}
+                        className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                      />
+                      {DELIVERABLE_LABELS[d]}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-500">Сначала выберите проект — форматы работ подтянутся из его сметы.</p>
+            )}
 
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
@@ -335,17 +460,28 @@ export function RequestForm({
           </>
         )}
 
-        {/* Срочность + дата */}
+        {/* Срочность + дата. Блогеры: плановые выплаты — по четвергам,
+            «Срочно» (1 раб. день) — вне четверга. */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label className="block text-sm font-medium text-gray-700">Срочность</label>
-            <select name="urgency" value={urgency} onChange={(e) => onUrgencyChange(e.target.value as Urgency)} className={inputCls}>
-              {URGENCY_KEYS.map((u) => (
-                <option key={u} value={u}>
-                  {URGENCY_LABELS[u]} — {URGENCY_HINTS[u]}
-                </option>
-              ))}
-            </select>
+            {isBlogger ? (
+              <select name="urgency" value={urgency} onChange={(e) => onUrgencyChange(e.target.value as Urgency)} className={inputCls}>
+                <option value="NOT_URGENT">Плановая — ближайший четверг</option>
+                <option value="URGENT">Срочно — 1 рабочий день</option>
+              </select>
+            ) : (
+              <select name="urgency" value={urgency} onChange={(e) => onUrgencyChange(e.target.value as Urgency)} className={inputCls}>
+                {URGENCY_KEYS.map((u) => (
+                  <option key={u} value={u}>
+                    {URGENCY_LABELS[u]} — {URGENCY_HINTS[u]}
+                  </option>
+                ))}
+              </select>
+            )}
+            {isBlogger && (
+              <p className="mt-1 text-xs text-gray-400">Выплаты блогерам проводятся раз в неделю — по четвергам.</p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700">Желаемая дата оплаты</label>
@@ -354,11 +490,15 @@ export function RequestForm({
               type="date"
               min={minDate || undefined}
               value={desiredPayDate}
-              onChange={(e) => setDesiredPayDate(e.target.value)}
+              onChange={(e) => onDateChange(e.target.value)}
               className={inputCls}
             />
-            {minDate && (
-              <p className="mt-1 text-xs text-gray-400">Не раньше {minDate.split("-").reverse().join(".")} ({URGENCY_HINTS[urgency]})</p>
+            {isBloggerPlan ? (
+              <p className="mt-1 text-xs text-gray-400">Только четверг — другая дата сдвинется на ближайший четверг.</p>
+            ) : (
+              minDate && (
+                <p className="mt-1 text-xs text-gray-400">Не раньше {minDate.split("-").reverse().join(".")} ({URGENCY_HINTS[urgency]})</p>
+              )
             )}
           </div>
         </div>

@@ -183,7 +183,7 @@ function DealModal({
 
   const totals = useMemo(() => {
     const g = num(deal);
-    const vat = (g * 12) / 112;
+    const vat = (g * 16) / 116;
     const net = g - vat;
     const fees = rows.reduce((s, r) => s + num(r.fee), 0);
     const reserves = rows.reduce((s, r) => s + num(r.reserve), 0);
@@ -605,7 +605,7 @@ function DealModal({
 
           {/* Живой расчёт экономики */}
           <div className="grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
-            <div><p className="text-xs text-gray-500">НДС (12/112)</p><p className="font-medium">{fmt(totals.vat)}</p></div>
+            <div><p className="text-xs text-gray-500">НДС (16/116)</p><p className="font-medium">{fmt(totals.vat)}</p></div>
             <div><p className="text-xs text-gray-500">Без НДС</p><p className="font-medium">{fmt(totals.net)}</p></div>
             <div><p className="text-xs text-gray-500">Себестоимость</p><p className="font-medium">{fmt(totals.cost)}</p></div>
             <div><p className="text-xs text-gray-500">Продакшн</p><p className="font-medium">{fmt(totals.reserves)}</p></div>

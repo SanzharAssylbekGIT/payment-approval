@@ -308,7 +308,7 @@ async function seedDemo(userId: Record<string, string>, ledgerId: Record<string,
     create: { id: "demo_recipient_dinara", entityId: ENTITY_ID, projectId: project.id, name: "Блогер Динара", kind: RecipientKind.BLOGGER },
   });
 
-  // Смета: цена клиенту 1 000 000 ₸ (НДС 12%), себестоимость 600 000 ₸.
+  // Смета: цена клиенту 1 000 000 ₸ (НДС 16% в цене), себестоимость 600 000 ₸.
   const estimate = await prisma.estimate.upsert({
     where: { id: "demo_estimate_nauryz" },
     update: {},
@@ -323,10 +323,10 @@ async function seedDemo(userId: Record<string, string>, ledgerId: Record<string,
       estimateId: estimate.id,
       version: 1,
       clientPriceGross: 100_000_000n, // 1 000 000 ₸
-      clientPriceNet: 89_285_714n, // 892 857,14 ₸
-      vatAmount: 10_714_286n, // 107 142,86 ₸ (gross-net)
+      clientPriceNet: 86_206_897n, // 862 068,97 ₸
+      vatAmount: 13_793_103n, // 137 931,03 ₸ (16/116 half-up)
       costAmount: 60_000_000n, // 600 000 ₸
-      marginAmount: 29_285_714n, // net - cost
+      marginAmount: 26_206_897n, // net - cost
       depositAmount: 0n,
       reason: EstimateChangeReason.INITIAL,
       createdById: userId["rakhima"],

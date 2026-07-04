@@ -34,7 +34,7 @@ const FILE_FIELDS: { field: string; kind: AttachmentKind }[] = [
 ];
 
 const VALID_DELIVERABLES: readonly BloggerDeliverable[] = [
-  "STORY", "STORY_SERIES", "VIDEO_POST", "PHOTO_POST", "TIKTOK", "YOUTUBE", "OTHER",
+  "STORY", "STORY_SERIES", "REELS", "VIDEO_POST", "PHOTO_POST", "TIKTOK", "YOUTUBE", "OTHER",
 ];
 
 function revalidateRequest(id?: string) {

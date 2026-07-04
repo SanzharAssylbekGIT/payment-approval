@@ -59,7 +59,8 @@ function computeBloggerAmount(contractTiyn: bigint, pct: number): bigint {
 }
 
 // Расчёт и валидация суммы/назначения в зависимости от вида расхода.
-function resolveFields(expenseType: ExpenseType, input: RequestInput): ResolvedFields {
+// optionText — утверждённая опция из сметы проекта (для гонорара блогера).
+function resolveFields(expenseType: ExpenseType, input: RequestInput, optionText?: string | null): ResolvedFields {
   if (isBloggerFee(expenseType)) {
     const contract = input.contractAmountTiyn ?? 0n;
     const pct = input.paymentPercent ?? 0;
@@ -69,7 +70,7 @@ function resolveFields(expenseType: ExpenseType, input: RequestInput): ResolvedF
     if (amount <= 0n) throw new RequestError("Сумма к оплате получилась нулевой — проверьте договор и %");
 
     const deliverables = input.deliverables ?? [];
-    const deliverableText = deliverables.map((d) => DELIVERABLE_LABELS[d]).join(", ");
+    const deliverableText = optionText ?? deliverables.map((d) => DELIVERABLE_LABELS[d]).join(", ");
     const purpose = deliverableText ? `Гонорар блогеру: ${deliverableText}` : "Гонорар блогеру";
 
     return {
@@ -101,13 +102,41 @@ function resolveFields(expenseType: ExpenseType, input: RequestInput): ResolvedF
 }
 
 // Желаемая дата не может быть раньше минимума по срочности (в т.ч. не в прошлом).
-function validateDesiredDate(urgency: Urgency, date: Date | null | undefined) {
+// Блогеры: плановые выплаты проводятся раз в неделю по ЧЕТВЕРГАМ; «Срочно»
+// (1 раб. день) — единственный способ выплатить вне четверга.
+function validateDesiredDate(expenseType: ExpenseType, urgency: Urgency, date: Date | null | undefined) {
   if (!date) return;
-  const min = minPayDateForUrgency(urgency);
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  if (isBloggerFee(expenseType) && urgency !== "URGENT") {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    if (d < today) throw new RequestError("Желаемая дата оплаты в прошлом");
+    if (d.getDay() !== 4) {
+      throw new RequestError("Плановые выплаты блогерам проводятся по четвергам — выберите четверг или срочность «Срочно»");
+    }
+    return;
+  }
+  const min = minPayDateForUrgency(urgency);
   if (d < min) {
     throw new RequestError("Желаемая дата оплаты раньше, чем допускает выбранная срочность");
   }
+}
+
+// Гонорар блогера: заявка привязывается к УТВЕРЖДЁННОЙ опции из сметы проекта
+// (строка блогер × опция). Подставляет получателя и форматы из строки.
+async function applyBloggerLine(expenseType: ExpenseType, input: RequestInput) {
+  if (!isBloggerFee(expenseType) || !input.estimateLineId) return null;
+  if (!input.projectId) throw new RequestError("Для выбора опции нужен проект");
+  const line = await prisma.estimateLine.findFirst({
+    where: { id: input.estimateLineId, kind: "RECIPIENT", version: { estimate: { projectId: input.projectId } } },
+  });
+  if (!line) throw new RequestError("Утверждённая опция не найдена в смете проекта");
+  if (input.recipientId && line.recipientId && input.recipientId !== line.recipientId) {
+    throw new RequestError("Выбранная опция относится к другому блогеру");
+  }
+  if (line.recipientId) input.recipientId = line.recipientId;
+  if (!(input.deliverables?.length) && line.deliverables.length) input.deliverables = line.deliverables;
+  return line;
 }
 
 // Проверка прав + проектной целостности (общая для create/update).
@@ -195,8 +224,8 @@ async function assertBloggerPercentLimit(
   }
 }
 
-// Проектные поля пишем только для проектных видов расхода; строку сметы —
-// только для не-блогерских (у блогера смета убрана из формы).
+// Проектные поля пишем только для проектных видов расхода. У блогера строка
+// сметы — это утверждённая опция сделки (блогер × опция), тоже сохраняем.
 function projectData(expenseType: ExpenseType, input: RequestInput) {
   if (!expenseType.isProjectCost) {
     return { projectId: null, recipientId: null, estimateLineId: null };
@@ -204,7 +233,7 @@ function projectData(expenseType: ExpenseType, input: RequestInput) {
   return {
     projectId: input.projectId ?? null,
     recipientId: input.recipientId ?? null,
-    estimateLineId: isBloggerFee(expenseType) ? null : input.estimateLineId ?? null,
+    estimateLineId: input.estimateLineId ?? null,
   };
 }
 
@@ -215,9 +244,10 @@ export async function createRequestForUser(user: AuthenticatedUser, input: Reque
   });
   if (!expenseType) throw new RequestError("Вид расхода не найден");
 
+  const line = await applyBloggerLine(expenseType, input);
   await assertAccessAndProject(user, expenseType, input);
-  const fields = resolveFields(expenseType, input);
-  validateDesiredDate(input.urgency, input.desiredPayDate);
+  const fields = resolveFields(expenseType, input, line?.customDeliverable ?? null);
+  validateDesiredDate(expenseType, input.urgency, input.desiredPayDate);
   if (fields.paymentPercent != null) {
     await assertBloggerPercentLimit(user, expenseType, input, fields.paymentPercent);
   }
@@ -272,9 +302,10 @@ export async function updateRequestForUser(user: AuthenticatedUser, id: string, 
   });
   if (!expenseType) throw new RequestError("Вид расхода не найден");
 
+  const line = await applyBloggerLine(expenseType, input);
   await assertAccessAndProject(user, expenseType, input);
-  const fields = resolveFields(expenseType, input);
-  validateDesiredDate(input.urgency, input.desiredPayDate);
+  const fields = resolveFields(expenseType, input, line?.customDeliverable ?? null);
+  validateDesiredDate(expenseType, input.urgency, input.desiredPayDate);
   if (fields.paymentPercent != null) {
     await assertBloggerPercentLimit(user, expenseType, input, fields.paymentPercent, id);
   }

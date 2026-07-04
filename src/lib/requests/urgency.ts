@@ -25,3 +25,21 @@ export function toDateInputValue(d: Date): string {
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
 }
+
+// Плановые выплаты блогерам — раз в неделю по четвергам.
+// Ближайший четверг СТРОГО после from (если сегодня четверг — следующий:
+// реестр текущего четверга уже собирается).
+export function nextThursday(from: Date = new Date()): Date {
+  const d = new Date(from.getFullYear(), from.getMonth(), from.getDate());
+  let days = (4 - d.getDay() + 7) % 7;
+  if (days === 0) days = 7;
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+// Четверг в этот день или ближайший следующий (для «примагничивания» даты).
+export function thursdayOnOrAfter(d: Date): Date {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() + ((4 - x.getDay() + 7) % 7));
+  return x;
+}
