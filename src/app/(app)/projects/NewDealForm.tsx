@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
 import { createDeal, createClient, type DealState } from "@/lib/projects/actions";
+import { COMPANY_FORMS, KZ_BANKS, kbeDescription, type CompanyFormValue } from "@/lib/clients/constants";
 import type { ServiceType } from "@prisma/client";
 
 const inputCls =
@@ -94,8 +95,18 @@ function DealModal({
   const [clientQuery, setClientQuery] = useState("");
   const [listOpen, setListOpen] = useState(false);
 
-  // Окно добавления клиента.
-  const [newClientName, setNewClientName] = useState("");
+  // Окно добавления клиента: карточка с реквизитами (КБЕ считает система).
+  const emptyClient = {
+    name: "",
+    legalName: "",
+    form: "TOO" as CompanyFormValue,
+    foreign: "local" as "local" | "foreign",
+    bin: "",
+    account: "",
+    bank: "",
+    bankOther: "",
+  };
+  const [nc, setNc] = useState(emptyClient);
   const [newClientError, setNewClientError] = useState<string | null>(null);
   const [savingClient, startSavingClient] = useTransition();
 
@@ -121,20 +132,27 @@ function DealModal({
   }
 
   function openNewClient() {
-    setNewClientName(clientQuery.trim());
+    setNc({ ...emptyClient, name: clientQuery.trim() });
     setNewClientError(null);
     setListOpen(false);
     setView("newClient");
   }
 
   function saveNewClient() {
-    const name = newClientName.trim();
-    if (!name) {
+    if (!nc.name.trim()) {
       setNewClientError("Укажите название клиента");
       return;
     }
     startSavingClient(async () => {
-      const res = await createClient(name);
+      const res = await createClient({
+        name: nc.name,
+        legalName: nc.legalName,
+        companyForm: nc.form,
+        isForeign: nc.foreign === "foreign",
+        bin: nc.bin,
+        bankAccount: nc.account,
+        bankName: nc.bank === "__other__" ? nc.bankOther : nc.bank,
+      });
       if (res.client) {
         setAdded((xs) => [...xs, res.client!]);
         selectClient(res.client);
@@ -200,20 +218,111 @@ function DealModal({
           </button>
         </div>
 
-        {/* Окно добавления клиента */}
+        {/* Окно добавления клиента: карточка с реквизитами */}
         {view === "newClient" && (
           <div className="space-y-4 p-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Название клиента *</label>
-              <input
-                value={newClientName}
-                onChange={(e) => setNewClientName(e.target.value)}
-                placeholder="Яндекс Поиск"
-                autoFocus
-                className={inputCls}
-              />
-              <p className="mt-1 text-xs text-gray-400">Клиент попадёт в общий справочник и станет доступен всем.</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Название клиента *</label>
+                <input
+                  value={nc.name}
+                  onChange={(e) => setNc((s) => ({ ...s, name: e.target.value }))}
+                  placeholder="Яндекс Поиск"
+                  autoFocus
+                  className={inputCls}
+                />
+                <p className="mt-1 text-xs text-gray-400">Как клиент виден в системе.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Юридическое название</label>
+                <input
+                  value={nc.legalName}
+                  onChange={(e) => setNc((s) => ({ ...s, legalName: e.target.value }))}
+                  placeholder="ТОО «Яндекс.Казахстан»"
+                  className={inputCls}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Форма компании *</label>
+                <select
+                  value={nc.form}
+                  onChange={(e) => setNc((s) => ({ ...s, form: e.target.value as CompanyFormValue }))}
+                  className={inputCls}
+                >
+                  {COMPANY_FORMS.map((f) => (
+                    <option key={f.value} value={f.value}>{f.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Компания *</label>
+                <select
+                  value={nc.foreign}
+                  onChange={(e) => setNc((s) => ({ ...s, foreign: e.target.value as "local" | "foreign" }))}
+                  className={inputCls}
+                >
+                  <option value="local">Местная (резидент РК)</option>
+                  <option value="foreign">Иностранная (нерезидент)</option>
+                </select>
+              </div>
             </div>
+
+            <fieldset className="rounded-lg border border-gray-200 p-4">
+              <legend className="px-1 text-sm font-medium text-gray-700">Банковские реквизиты</legend>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">БИН</label>
+                  <input
+                    value={nc.bin}
+                    onChange={(e) => setNc((s) => ({ ...s, bin: e.target.value }))}
+                    placeholder="123456789012"
+                    inputMode="numeric"
+                    maxLength={12}
+                    className={inputCls}
+                  />
+                  <p className="mt-1 text-xs text-gray-400">12 цифр; у иностранной компании может отсутствовать.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Номер счёта (IBAN)</label>
+                  <input
+                    value={nc.account}
+                    onChange={(e) => setNc((s) => ({ ...s, account: e.target.value }))}
+                    placeholder="KZ00 0000 0000 0000 0000"
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Банк</label>
+                  <select
+                    value={nc.bank}
+                    onChange={(e) => setNc((s) => ({ ...s, bank: e.target.value }))}
+                    className={inputCls}
+                  >
+                    <option value="">— выберите банк —</option>
+                    {KZ_BANKS.map((b) => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                    <option value="__other__">Другой банк (вручную)</option>
+                  </select>
+                  {nc.bank === "__other__" && (
+                    <input
+                      value={nc.bankOther}
+                      onChange={(e) => setNc((s) => ({ ...s, bankOther: e.target.value }))}
+                      placeholder="Название банка"
+                      className={`${inputCls} mt-2`}
+                    />
+                  )}
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">КБЕ</label>
+                  <div className="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                    {kbeDescription(nc.form, nc.foreign === "foreign")}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-400">Считается автоматически из формы компании и резидентства.</p>
+                </div>
+              </div>
+            </fieldset>
+
             {newClientError && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{newClientError}</p>}
             <div className="flex justify-between">
               <button type="button" onClick={() => setView("deal")} className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-600 hover:bg-gray-50">
@@ -327,7 +436,7 @@ function DealModal({
           {/* Сроки (дата регистрации фиксируется автоматически) */}
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label className="block text-sm font-medium text-gray-700">Дата реализации *</label>
+              <label className="block text-sm font-medium text-gray-700">Дата утверждения проекта *</label>
               <input name="realizationDate" type="date" required className={inputCls} />
             </div>
             <div>
@@ -361,7 +470,27 @@ function DealModal({
                         onChange={(e) => {
                           const v = e.target.value;
                           const nb = bloggers.find((x) => x.id === v);
-                          setRow(i, { bloggerId: v, name: nb?.name ?? "", optionName: "", custom: "", fee: "" });
+                          if (nb) {
+                            // Смена блогера: опция остаётся; если она есть в прайсе
+                            // нового блогера — гонорар подставляется по его цене.
+                            const keep = nb.options.find((o) => o.name === r.optionName);
+                            setRow(i, {
+                              bloggerId: v,
+                              name: nb.name,
+                              optionName: keep ? r.optionName : r.optionName === "__custom__" ? "__custom__" : "",
+                              fee: keep ? keep.priceWithTax : r.optionName === "__custom__" ? r.fee : "",
+                            });
+                          } else if (v === "__custom__") {
+                            // «Не из базы»: опция переносится текстом, гонорар остаётся.
+                            setRow(i, {
+                              bloggerId: v,
+                              name: "",
+                              optionName: "",
+                              custom: r.custom || (r.optionName && r.optionName !== "__custom__" ? r.optionName : ""),
+                            });
+                          } else {
+                            setRow(i, { bloggerId: "", name: "", optionName: "", custom: "", fee: "" });
+                          }
                         }}
                         className={`${inputCls} mt-0 w-56`}
                       >
@@ -448,17 +577,20 @@ function DealModal({
           </div>
 
           {/* Живой расчёт экономики */}
-          <div className="grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
             <div><p className="text-xs text-gray-500">НДС (12/112)</p><p className="font-medium">{fmt(totals.vat)}</p></div>
             <div><p className="text-xs text-gray-500">Без НДС</p><p className="font-medium">{fmt(totals.net)}</p></div>
-            <div>
-              <p className="text-xs text-gray-500">Себестоимость</p>
-              <p className="font-medium">{fmt(totals.cost)}</p>
-              {totals.reserves > 0 && <p className="text-xs text-gray-400">в т.ч. резерв {fmt(totals.reserves)}</p>}
-            </div>
+            <div><p className="text-xs text-gray-500">Себестоимость</p><p className="font-medium">{fmt(totals.cost)}</p></div>
+            <div><p className="text-xs text-gray-500">Продакшн</p><p className="font-medium">{fmt(totals.reserves)}</p></div>
             <div>
               <p className="text-xs text-gray-500">Маржа</p>
               <p className={`font-medium ${totals.margin < 0 ? "text-red-600" : "text-green-700"}`}>{fmt(totals.margin)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Маржа, %</p>
+              <p className={`font-medium ${totals.margin < 0 ? "text-red-600" : "text-green-700"}`}>
+                {totals.net > 0 ? `${((totals.margin / totals.net) * 100).toFixed(1)}%` : "—"}
+              </p>
             </div>
           </div>
 

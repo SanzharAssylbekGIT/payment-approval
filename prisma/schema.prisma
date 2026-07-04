@@ -214,11 +214,28 @@ enum ServiceType {
   SPEC_PROJECT // спецпроект (счёт 0175)
 }
 
+// Форма компании клиента (Казахстан): ИП, ТОО, АО, частная компания (МФЦА).
+enum CompanyForm {
+  IP
+  TOO
+  AO
+  CHK
+}
+
 model Client {
   id       String @id @default(cuid())
   entityId String
   entity   Entity @relation(fields: [entityId], references: [id])
-  name     String // напр. «Яндекс Поиск»
+  name     String // отображаемое название, напр. «Яндекс Поиск»
+
+  // Карточка клиента (реквизиты для счетов/платежей).
+  legalName   String? // юридическое название (если отличается)
+  companyForm CompanyForm?
+  isForeign   Boolean      @default(false) // местная (резидент РК) или иностранная
+  bin         String? // БИН/ИИН, 12 цифр (у иностранных может отсутствовать)
+  bankAccount String? // номер счёта (IBAN, KZ…)
+  bankName    String? // банк из списка БВУ РК либо свой текст
+  kbe         String? // КБЕ — считается системой из формы компании и резидентства
 
   projects Project[]
 
@@ -258,8 +275,8 @@ model Project {
   departmentId String?
   department   Department? @relation(fields: [departmentId], references: [id])
 
-  realizationDate DateTime? // дата реализации (кампания/мероприятие выходит)
-  completionDate  DateTime? // дата завершения проекта
+  realizationDate DateTime? // дата утверждения проекта (колонка историческая — не переименовываем)
+  completionDate  DateTime? // запланированная дата завершения проекта
   createdAt DateTime @default(now()) // дата регистрации проекта
 
   recipients      Recipient[]

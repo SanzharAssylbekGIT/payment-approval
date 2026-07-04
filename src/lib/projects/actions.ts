@@ -22,7 +22,7 @@ const dealSchema = z.object({
   clientId: z.string().min(1, "Выберите клиента из списка"),
   serviceType: z.enum(["INFLUENCE", "VIDEO_PHOTO", "EVENT", "SPEC_PROJECT"]),
   projectManagerId: z.string().min(1, "Прикрепите проджект-менеджера"),
-  realizationDate: z.string().min(1, "Укажите дату реализации"),
+  realizationDate: z.string().min(1, "Укажите дату утверждения проекта"),
   completionDate: z.string().min(1, "Укажите запланированную дату завершения"),
   dealAmount: z.string().min(1, "Укажите сумму сделки"),
   ownerUserId: z.string().optional(), // только для «видящих всё»
@@ -87,7 +87,7 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Некорректные данные" };
   }
-  if (completionDate < realizationDate) return { error: "Запланированная дата завершения раньше даты реализации" };
+  if (completionDate < realizationDate) return { error: "Запланированная дата завершения раньше даты утверждения проекта" };
 
   // Строки себестоимости из JSON формы.
   let raw: DealLineRaw[];
@@ -193,30 +193,71 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
 
 export type NewClientResult = { client?: { id: string; name: string }; error?: string };
 
-// Добавление клиента в справочник (из окна «Создать проект»). Дубликаты по
-// имени (без учёта регистра) не создаём — возвращаем существующего.
-export async function createClient(name: string): Promise<NewClientResult> {
+const clientSchema = z.object({
+  name: z.string().trim().min(1, "Укажите название клиента").max(200, "Слишком длинное название"),
+  legalName: z.string().trim().max(300, "Слишком длинное юр. название").optional(),
+  companyForm: z.enum(["IP", "TOO", "AO", "CHK"], { message: "Выберите форму компании" }),
+  isForeign: z.boolean(),
+  bin: z.string().trim().optional(),
+  bankAccount: z.string().trim().optional(),
+  bankName: z.string().trim().max(200, "Слишком длинное название банка").optional(),
+});
+
+export type NewClientInput = z.input<typeof clientSchema>;
+
+// Добавление клиента в справочник (окно «Новый клиент» при создании проекта).
+// КБЕ считает система из формы компании и резидентства; дубликаты по имени
+// не создаём — просим выбрать существующего из списка.
+export async function createClient(input: NewClientInput): Promise<NewClientResult> {
   const user = await requireUser();
   const seeAll = hasRole(user, "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO");
   if (!hasRole(user, "ACCOUNT_MANAGER") && !seeAll) return { error: "Нет прав добавлять клиентов" };
 
-  const trimmed = name.trim();
-  if (!trimmed) return { error: "Укажите название клиента" };
-  if (trimmed.length > 200) return { error: "Слишком длинное название" };
+  const parsed = clientSchema.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
+  const d = parsed.data;
+
+  // БИН: 12 цифр (если указан — у иностранных компаний его может не быть).
+  const bin = d.bin?.replace(/\s/g, "") || null;
+  if (bin && !/^\d{12}$/.test(bin)) return { error: "БИН должен состоять из 12 цифр" };
+
+  // Номер счёта: казахстанский IBAN — KZ + 18 знаков; иностранные — не строже 34.
+  const account = d.bankAccount?.replace(/\s/g, "").toUpperCase() || null;
+  if (account) {
+    if (account.startsWith("KZ") && !/^KZ[0-9A-Z]{18}$/.test(account)) {
+      return { error: "Казахстанский счёт (IBAN) — это KZ и ещё 18 символов" };
+    }
+    if (!/^[0-9A-Z]{5,34}$/.test(account)) return { error: "Некорректный номер счёта" };
+  }
 
   const existing = await prisma.client.findFirst({
-    where: { entityId: user.entityId, name: { equals: trimmed, mode: "insensitive" } },
+    where: { entityId: user.entityId, name: { equals: d.name, mode: "insensitive" } },
   });
-  if (existing) return { client: { id: existing.id, name: existing.name } };
+  if (existing) return { error: `Клиент «${existing.name}» уже есть — выберите его из списка` };
 
-  const created = await prisma.client.create({ data: { entityId: user.entityId, name: trimmed } });
+  // КБЕ: 1-я цифра — резидентство (1/2), 2-я — сектор (9 ИП / 7 юрлицо).
+  const kbe = (d.isForeign ? "2" : "1") + (d.companyForm === "IP" ? "9" : "7");
+
+  const created = await prisma.client.create({
+    data: {
+      entityId: user.entityId,
+      name: d.name,
+      legalName: d.legalName || null,
+      companyForm: d.companyForm,
+      isForeign: d.isForeign,
+      bin,
+      bankAccount: account,
+      bankName: d.bankName || null,
+      kbe,
+    },
+  });
   await writeAudit({
     entityId: user.entityId,
     userId: user.id,
     action: "CLIENT_CREATED",
     targetType: "Client",
     targetId: created.id,
-    comment: `Добавлен клиент «${created.name}»`,
+    comment: `Добавлен клиент «${created.name}» (КБЕ ${kbe}${bin ? `, БИН ${bin}` : ""})`,
   });
   revalidatePath("/projects");
   return { client: { id: created.id, name: created.name } };

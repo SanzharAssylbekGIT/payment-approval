@@ -70,7 +70,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         </p>
         <p className="mt-0.5 text-xs text-gray-400">
           Зарегистрирован {project.createdAt.toLocaleDateString("ru-RU")}
-          {project.realizationDate ? ` · реализация ${project.realizationDate.toLocaleDateString("ru-RU")}` : ""}
+          {project.realizationDate ? ` · утверждён ${project.realizationDate.toLocaleDateString("ru-RU")}` : ""}
           {project.completionDate ? ` · план. завершение ${project.completionDate.toLocaleDateString("ru-RU")}` : ""}
         </p>
       </div>
