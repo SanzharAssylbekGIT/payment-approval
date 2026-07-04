@@ -5,7 +5,8 @@
 
 import { prisma } from "@/lib/db";
 import { writeAudit } from "@/lib/audit";
-import { canSeeEverything, hasRole } from "@/lib/auth/permissions";
+import { hasRole } from "@/lib/auth/permissions";
+import { projectScopeFilter } from "@/lib/projects/scope";
 import type { AuthenticatedUser } from "@/lib/auth/types";
 import type { BloggerDeliverable, EstimateChangeReason, Prisma } from "@prisma/client";
 
@@ -44,16 +45,10 @@ export interface EstimateInput {
   comment?: string | null;
 }
 
-// Проект в области видимости пользователя (владелец/департамент/«видит всё»).
+// Проект в области видимости пользователя (единое правило §10 — scope.ts).
 export async function getScopedProject(user: AuthenticatedUser, projectId: string) {
   return prisma.project.findFirst({
-    where: {
-      id: projectId,
-      entityId: user.entityId,
-      ...(canSeeEverything(user)
-        ? {}
-        : { OR: [{ ownerUserId: user.id }, { projectManagerId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
-    },
+    where: { id: projectId, entityId: user.entityId, ...projectScopeFilter(user) },
     include: { ledger: true, client: true },
   });
 }

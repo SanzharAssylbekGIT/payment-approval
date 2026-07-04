@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/db";
 import { canSeeEverything, hasRole } from "@/lib/auth/rbac";
+import { projectScopeFilter } from "@/lib/projects/scope";
 import { DELIVERABLE_LABELS } from "./status";
 import type { AuthenticatedUser } from "@/lib/auth/types";
 import type { RequestStatus } from "@prisma/client";
@@ -23,9 +24,7 @@ export async function getRequestFormData(user: AuthenticatedUser) {
     where: {
       entityId: user.entityId,
       status: "ACTIVE",
-      ...(seeAll
-        ? {}
-        : { OR: [{ ownerUserId: user.id }, { projectManagerId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
+      ...projectScopeFilter(user),
     },
     include: {
       client: true,

@@ -3,21 +3,9 @@
 // (владелец или департамент) — фильтр в SQL, не в UI.
 
 import { prisma } from "@/lib/db";
-import { canSeeEverything } from "@/lib/auth/permissions";
+import { projectScopeFilter } from "@/lib/projects/scope";
 import type { AuthenticatedUser } from "@/lib/auth/types";
 import type { ServiceType } from "@prisma/client";
-
-function scopeFilter(user: AuthenticatedUser) {
-  return canSeeEverything(user)
-    ? {}
-    : {
-        OR: [
-          { ownerUserId: user.id },
-          { projectManagerId: user.id },
-          { departmentId: user.departmentId ?? "__none__" },
-        ],
-      };
-}
 
 // Список проектов одного вида услуги со статусами оплат, сметой и деньгами
 // клиента (поступило/дебиторка). showClosed — включать закрытые/отменённые.
@@ -27,7 +15,7 @@ export async function getProjectsByService(user: AuthenticatedUser, serviceType:
       entityId: user.entityId,
       serviceType,
       ...(showClosed ? {} : { status: "ACTIVE" }),
-      ...scopeFilter(user),
+      ...projectScopeFilter(user),
     },
     include: {
       client: true,
@@ -93,7 +81,7 @@ export async function getProjectsByService(user: AuthenticatedUser, serviceType:
 // смета (текущая + версии), получатели план/факт, заявки с датами, баланс.
 export async function getProjectDetailForUser(user: AuthenticatedUser, projectId: string) {
   const project = await prisma.project.findFirst({
-    where: { id: projectId, entityId: user.entityId, ...scopeFilter(user) },
+    where: { id: projectId, entityId: user.entityId, ...projectScopeFilter(user) },
     include: {
       client: true,
       owner: true,

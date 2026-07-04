@@ -6,6 +6,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canSeeEverything } from "@/lib/auth/permissions";
+import { projectScopeFilter } from "@/lib/projects/scope";
 import { writeAudit } from "@/lib/audit";
 import { DELIVERABLE_LABELS, BLOGGER_FEE_CODE } from "./status";
 import { minPayDateForUrgency } from "./urgency";
@@ -150,16 +151,10 @@ async function assertAccessAndProject(user: AuthenticatedUser, expenseType: Expe
 
   if (!input.projectId) throw new RequestError("Для этого вида расхода нужен проект");
   // Конфиденциальность (§10): проект должен быть в области видимости пользователя
-  // — тот же скоуп, что в getRequestFormData, иначе можно привязаться к чужому
-  // проекту в обход формы.
+  // — единое правило projectScopeFilter (как в getRequestFormData), иначе можно
+  // привязаться к чужому проекту в обход формы.
   const project = await prisma.project.findFirst({
-    where: {
-      id: input.projectId,
-      entityId: user.entityId,
-      ...(canSeeEverything(user)
-        ? {}
-        : { OR: [{ ownerUserId: user.id }, { projectManagerId: user.id }, { departmentId: user.departmentId ?? "__none__" }] }),
-    },
+    where: { id: input.projectId, entityId: user.entityId, ...projectScopeFilter(user) },
   });
   if (!project) throw new RequestError("Проект не найден");
   // Проект должен соответствовать услуге вида расхода.
