@@ -56,12 +56,16 @@ export function NewDealForm(props: {
   nextNumber: number; // номер, который присвоит система (сквозной по компании)
 }) {
   const [open, setOpen] = useState(false);
+  // До гидрации кнопка отключена: ранний клик не должен молча теряться.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
   return (
     <div>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
+        disabled={!mounted}
+        className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
       >
         + Создать проект
       </button>
