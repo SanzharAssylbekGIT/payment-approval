@@ -6,8 +6,8 @@ import type { ServiceType } from "@prisma/client";
 
 export const PROJECT_CODE_PREFIX: Record<ServiceType, string> = {
   INFLUENCE: "IM", // блогеры (influence marketing)
-  VIDEO_PHOTO: "PR", // продакшн
-  EVENT: "EV", // ивенты
+  VIDEO_PHOTO: "VP", // продакшн (video production)
+  EVENT: "EM", // ивенты (event management)
   SPEC_PROJECT: "SP", // спецпроекты
 };
 
