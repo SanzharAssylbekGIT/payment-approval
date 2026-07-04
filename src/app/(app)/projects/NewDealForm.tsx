@@ -667,7 +667,7 @@ function DealModal({
             <label className="block text-sm font-medium text-gray-700">Себестоимость проекта *</label>
             <div className="mt-2 rounded-lg border border-dashed border-gray-300 p-4">
               <p className="text-sm text-gray-600">
-                Загрузите смету продюсера (файл .xlsx) — строки появятся ниже, их можно отредактировать перед созданием проекта.
+                Загрузите смету (файл .xlsx) — строки появятся ниже, их можно отредактировать перед созданием проекта.
               </p>
               <div className="mt-2 flex items-center gap-3">
                 <input

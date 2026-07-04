@@ -40,11 +40,11 @@ export default async function ProjectsPage({
     { gross: 0n, received: 0n, paid: 0n, receivable: 0n },
   );
   // Создавать проекты могут продажники (ACCOUNT_MANAGER) и финансы; проджекты —
-  // только смотрят. Открыто для «Блогеры» (таблица блогеров) и «Продакшн»
-  // (смета из Excel); «Ивенты»/«Спец» подключим следующими итерациями.
+  // только смотрят. Открыто для «Блогеры» (таблица блогеров), «Продакшн» и
+  // «Ивенты» (смета из Excel); «Спецпроекты» подключим следующей итерацией.
   const canCreate =
     (seeAll || hasRole(user, "ACCOUNT_MANAGER")) &&
-    (active.service === "INFLUENCE" || active.service === "VIDEO_PHOTO");
+    (active.service === "INFLUENCE" || active.service === "VIDEO_PHOTO" || active.service === "EVENT");
 
   const [clientOptions, pmOptions, bloggerRows, ownerOptions, nextNumber] = await Promise.all([
     prisma.client.findMany({ where: { entityId: user.entityId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
