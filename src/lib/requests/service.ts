@@ -88,18 +88,27 @@ function resolveFields(expenseType: ExpenseType, input: RequestInput, optionText
     };
   }
 
-  // Обычная заявка.
+  // Обычная заявка. Для проектных видов (продакшн и др.) возможна частичная
+  // оплата: % от суммы позиций (типовые 50/50) + предоплата/постоплата.
   const amount = input.amountTiyn ?? 0n;
   if (amount <= 0n) throw new RequestError("Сумма должна быть больше нуля");
   const purpose = (input.purpose ?? "").trim();
   if (!purpose) throw new RequestError("Укажите назначение платежа");
 
+  let pct: number | null = null;
+  if (expenseType.isProjectCost && input.paymentPercent != null) {
+    if (!Number.isInteger(input.paymentPercent) || input.paymentPercent < 1 || input.paymentPercent > 100) {
+      throw new RequestError("% от суммы должен быть от 1 до 100");
+    }
+    pct = input.paymentPercent;
+  }
+
   return {
     amount,
     purpose,
     contractAmount: null,
-    paymentPercent: null,
-    paymentTiming: null,
+    paymentPercent: pct,
+    paymentTiming: expenseType.isProjectCost ? input.paymentTiming ?? null : null,
     serviceRendered: false,
     deliverables: [],
   };
@@ -195,6 +204,52 @@ function uniqueLineIds(input: RequestInput): string[] {
   return [...new Set((input.estimateLineIds ?? []).filter(Boolean))];
 }
 
+// Дробление платежей продакшна: суммарный % по КАЖДОЙ позиции сметы (по всем
+// «живым» заявкам, привязанным к ней) не должен превышать 100 — например,
+// 50% предоплата + 50% постоплата, третья заявка не пройдёт.
+async function assertLinePercentLimit(
+  user: AuthenticatedUser,
+  expenseType: ExpenseType,
+  input: RequestInput,
+  pct: number | null,
+  excludeRequestId?: string,
+) {
+  if (isBloggerFee(expenseType) || pct == null) return;
+  const ids = uniqueLineIds(input);
+  if (ids.length === 0) return;
+
+  const links = await prisma.paymentRequestLine.findMany({
+    where: {
+      estimateLineId: { in: ids },
+      request: {
+        entityId: user.entityId,
+        status: { notIn: ["REJECTED", "CANCELLED"] },
+        paymentPercent: { not: null },
+        ...(excludeRequestId ? { id: { not: excludeRequestId } } : {}),
+      },
+    },
+    include: {
+      request: { select: { paymentPercent: true } },
+      estimateLine: { select: { title: true } },
+    },
+  });
+
+  const claimed = new Map<string, { sum: number; title: string }>();
+  for (const l of links) {
+    const cur = claimed.get(l.estimateLineId) ?? { sum: 0, title: l.estimateLine.title };
+    cur.sum += l.request.paymentPercent ?? 0;
+    claimed.set(l.estimateLineId, cur);
+  }
+  for (const id of ids) {
+    const cur = claimed.get(id);
+    if (cur && cur.sum + pct > 100) {
+      throw new RequestError(
+        `Позиция «${cur.title}»: суммарный % превысит 100 — уже заявлено ${cur.sum}%, добавляется ${pct}%`,
+      );
+    }
+  }
+}
+
 // Синхронизирует связь «заявка ↔ позиции сметы» (мультивыбор продакшна).
 async function syncRequestLines(requestId: string, input: RequestInput) {
   const ids = uniqueLineIds(input);
@@ -283,6 +338,7 @@ export async function createRequestForUser(user: AuthenticatedUser, input: Reque
   validateDesiredDate(expenseType, input.urgency, input.desiredPayDate);
   if (fields.paymentPercent != null) {
     await assertBloggerPercentLimit(user, expenseType, input, fields.paymentPercent);
+    await assertLinePercentLimit(user, expenseType, input, fields.paymentPercent);
   }
 
   const data = {
@@ -343,6 +399,7 @@ export async function updateRequestForUser(user: AuthenticatedUser, id: string, 
   validateDesiredDate(expenseType, input.urgency, input.desiredPayDate);
   if (fields.paymentPercent != null) {
     await assertBloggerPercentLimit(user, expenseType, input, fields.paymentPercent, id);
+    await assertLinePercentLimit(user, expenseType, input, fields.paymentPercent, id);
   }
 
   const updated = await prisma.paymentRequest.update({

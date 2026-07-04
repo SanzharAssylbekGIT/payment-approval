@@ -171,18 +171,31 @@ export function RequestForm({
   }
 
   // Продакшн: мультивыбор позиций сметы — одной заявкой можно оплатить
-  // несколько позиций разом. Сумма и назначение подставляются автоматически.
-  const AUTO_PURPOSE = "Оплата по смете: ";
+  // несколько позиций разом, с дроблением платежа (% от суммы, типовые 50/50).
+  // Сумма и назначение подставляются автоматически.
+  const [prodPercent, setProdPercent] = useState(initial?.paymentPercent || "100");
+  const AUTO_PURPOSE = "Оплата по смете";
+
+  function recalcProduction(ids: string[], pctStr: string) {
+    const lines = (selectedProject?.estimateLines ?? []).filter((l) => ids.includes(l.id));
+    if (lines.length === 0) return;
+    const sum = lines.reduce((s, l) => s + BigInt(l.plannedAmount), 0n);
+    const pct = Math.round(Number(pctStr));
+    const valid = Number.isFinite(pct) && pct >= 1 && pct <= 100;
+    // Та же арифметика, что на сервере у блогеров: half-up до тиына.
+    setAmount(tiynToInputString(valid ? (sum * BigInt(pct) + 50n) / 100n : sum));
+    setPurpose((p) =>
+      !p.trim() || p.startsWith(AUTO_PURPOSE)
+        ? `${AUTO_PURPOSE}${valid && pct < 100 ? ` (${pct}%)` : ""}: ${lines.map((l) => l.title).join(", ")}`
+        : p,
+    );
+  }
+
   function toggleLine(id: string) {
     const next = lineIds.includes(id) ? lineIds.filter((x) => x !== id) : [...lineIds, id];
     setLineIds(next);
+    recalcProduction(next, prodPercent);
     const lines = (selectedProject?.estimateLines ?? []).filter((l) => next.includes(l.id));
-    if (lines.length > 0) {
-      setAmount(tiynToInputString(lines.reduce((s, l) => s + BigInt(l.plannedAmount), 0n)));
-    }
-    setPurpose((p) => (!p.trim() || p.startsWith(AUTO_PURPOSE)) && lines.length > 0
-      ? AUTO_PURPOSE + lines.map((l) => l.title).join(", ")
-      : p);
     if (lines.length === 1 && lines[0].recipientId) setRecipientId(lines[0].recipientId);
   }
 
@@ -369,6 +382,43 @@ export function RequestForm({
                 <p className="mt-1 text-xs text-gray-400">
                   Отметьте одну или несколько позиций — сумма заявки и назначение платежа подставятся автоматически (их можно поправить).
                 </p>
+
+                {/* Дробление платежа: % от суммы позиций (типовые 50/50) */}
+                <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">% от суммы позиций</label>
+                    <input
+                      name="paymentPercent"
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={prodPercent}
+                      onChange={(e) => {
+                        setProdPercent(e.target.value);
+                        recalcProduction(lineIds, e.target.value);
+                      }}
+                      className={inputCls}
+                    />
+                    <p className="mt-1 text-xs text-gray-400">Например, 50 — предоплата половины; сумма пересчитается.</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Оплата</label>
+                    <div className="mt-2 flex gap-4 text-sm text-gray-700">
+                      {(Object.keys(PAYMENT_TIMING_LABELS) as PaymentTiming[]).map((t) => (
+                        <label key={t} className="flex items-center gap-2">
+                          <input
+                            type="radio"
+                            name="paymentTiming"
+                            value={t}
+                            defaultChecked={(initial?.paymentTiming ?? "PREPAY") === t}
+                            className="border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                          />
+                          {PAYMENT_TIMING_LABELS[t]}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
           </>
