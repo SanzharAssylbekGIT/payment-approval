@@ -8,6 +8,7 @@ import { hasRole, canSeeEverything } from "@/lib/auth/permissions";
 import { writeAudit } from "@/lib/audit";
 import { parseTengeToTiyn } from "@/lib/money";
 import { EstimateError, saveEstimateVersion, getScopedProject, type EstimateLineInput } from "@/lib/estimates/service";
+import { parseEstimateXlsx, type ParsedEstimateRow } from "@/lib/estimates/excel";
 import { createProjectNumbered } from "@/lib/projects/numbering";
 import type { BloggerDeliverable } from "@prisma/client";
 
@@ -189,6 +190,33 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
   revalidatePath("/projects");
   revalidatePath("/accounting/projects");
   return { ok: true };
+}
+
+export type ParseEstimateResult = { rows?: ParsedEstimateRow[]; error?: string };
+
+// Смета продакшна из Excel (.xlsx): продюсер загружает файл в окне создания
+// проекта, строки выводятся в редактируемую таблицу. Файл НЕ сохраняется —
+// источник правды остаётся смета в системе после правок пользователя.
+export async function parseEstimateExcel(formData: FormData): Promise<ParseEstimateResult> {
+  const user = await requireUser();
+  const seeAll = hasRole(user, "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO");
+  if (!hasRole(user, "ACCOUNT_MANAGER") && !seeAll) return { error: "Нет прав создавать проекты" };
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Выберите файл со сметой" };
+  if (file.size > 10 * 1024 * 1024) return { error: "Файл больше 10 МБ" };
+  if (!file.name.toLowerCase().endsWith(".xlsx")) {
+    return { error: "Поддерживается только .xlsx — пересохраните файл в Excel как «Книга Excel (.xlsx)»" };
+  }
+
+  try {
+    const rows = await parseEstimateXlsx(Buffer.from(await file.arrayBuffer()));
+    if (rows.length === 0) return { error: "Не нашёл в файле строк «название + сумма» — проверьте лист со сметой" };
+    if (rows.length > 300) return { error: `В файле ${rows.length} строк — слишком много для сметы, проверьте лист` };
+    return { rows };
+  } catch {
+    return { error: "Не удалось прочитать файл — убедитесь, что это корректный .xlsx" };
+  }
 }
 
 export type NewClientResult = { client?: { id: string; name: string }; error?: string };

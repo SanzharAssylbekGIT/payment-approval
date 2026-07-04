@@ -39,8 +39,11 @@ export default async function ProjectsPage({
     { gross: 0n, received: 0n, paid: 0n, receivable: 0n },
   );
   // Создавать проекты могут продажники (ACCOUNT_MANAGER) и финансы; проджекты —
-  // только смотрят. Пока форма открыта только для раздела «Блогеры» (Influence).
-  const canCreate = (seeAll || hasRole(user, "ACCOUNT_MANAGER")) && active.service === "INFLUENCE";
+  // только смотрят. Открыто для «Блогеры» (таблица блогеров) и «Продакшн»
+  // (смета из Excel); «Ивенты»/«Спец» подключим следующими итерациями.
+  const canCreate =
+    (seeAll || hasRole(user, "ACCOUNT_MANAGER")) &&
+    (active.service === "INFLUENCE" || active.service === "VIDEO_PHOTO");
 
   const [clientOptions, pmOptions, bloggerRows, ownerOptions, nextNumber] = await Promise.all([
     prisma.client.findMany({ where: { entityId: user.entityId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -49,11 +52,13 @@ export default async function ProjectsPage({
       orderBy: { fullName: "asc" },
       select: { id: true, fullName: true },
     }),
-    prisma.blogger.findMany({
-      where: { entityId: user.entityId, isActive: true },
-      include: { prices: true },
-      orderBy: { name: "asc" },
-    }),
+    active.service === "INFLUENCE"
+      ? prisma.blogger.findMany({
+          where: { entityId: user.entityId, isActive: true },
+          include: { prices: true },
+          orderBy: { name: "asc" },
+        })
+      : Promise.resolve([]),
     seeAll
       ? prisma.user.findMany({
           where: { entityId: user.entityId, isActive: true, roles: { some: { role: "ACCOUNT_MANAGER" } } },

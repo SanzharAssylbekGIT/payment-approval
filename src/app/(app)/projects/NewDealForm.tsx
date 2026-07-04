@@ -1,7 +1,7 @@
 "use client";
 
-import { useActionState, useEffect, useMemo, useState, useTransition } from "react";
-import { createDeal, createClient, type DealState } from "@/lib/projects/actions";
+import { useActionState, useEffect, useMemo, useState, useTransition, type ChangeEvent } from "react";
+import { createDeal, createClient, parseEstimateExcel, type DealState } from "@/lib/projects/actions";
 import { COMPANY_FORMS, KZ_BANKS, kbeDescription, type CompanyFormValue } from "@/lib/clients/constants";
 import type { ServiceType } from "@prisma/client";
 
@@ -84,6 +84,30 @@ function DealModal({
   const [state, formAction, pending] = useActionState(createDeal, {} as DealState);
   const [deal, setDeal] = useState("");
   const [rows, setRows] = useState<Row[]>([{ ...emptyRow }]);
+  const isInfluence = service === "INFLUENCE";
+
+  // Продакшн: смета загружается из Excel (.xlsx) и правится в окне.
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [parsedFrom, setParsedFrom] = useState<string | null>(null); // имя загруженного файла
+  const [parsing, startParsing] = useTransition();
+
+  function onEstimateFile(e: ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    e.target.value = ""; // чтобы можно было выбрать тот же файл повторно
+    if (!f) return;
+    const fd = new FormData();
+    fd.append("file", f);
+    setParseError(null);
+    startParsing(async () => {
+      const res = await parseEstimateExcel(fd);
+      if (res.rows) {
+        setRows(res.rows.map((r) => ({ ...emptyRow, name: r.name, fee: r.amount })));
+        setParsedFrom(f.name);
+      } else {
+        setParseError(res.error ?? "Не удалось прочитать файл");
+      }
+    });
+  }
 
   // Экран внутри окна: сама сделка или добавление нового клиента.
   // Форма сделки при переходе скрывается (не размонтируется) — данные не теряются.
@@ -477,7 +501,8 @@ function DealModal({
             <input name="dealAmount" inputMode="decimal" required placeholder="1 000 000" value={deal} onChange={(e) => setDeal(e.target.value)} className={inputCls} />
           </div>
 
-          {/* Таблица блогеров: одна строка = блогер × опция, у каждой свой резерв */}
+          {/* Себестоимость: Influence — таблица блогеров; Продакшн — смета из Excel */}
+          {isInfluence ? (
           <div>
             <label className="block text-sm font-medium text-gray-700">
               Выплаты блогерам * (одна строка = блогер × опция; продакшн-резерв — по каждой строке)
@@ -602,13 +627,64 @@ function DealModal({
               + Добавить блогера / опцию
             </button>
           </div>
+          ) : (
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Себестоимость проекта *</label>
+            <div className="mt-2 rounded-lg border border-dashed border-gray-300 p-4">
+              <p className="text-sm text-gray-600">
+                Загрузите смету продюсера (файл .xlsx) — строки появятся ниже, их можно отредактировать перед созданием проекта.
+              </p>
+              <div className="mt-2 flex items-center gap-3">
+                <input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={onEstimateFile}
+                  disabled={parsing}
+                  className="text-sm text-gray-600 file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-indigo-700"
+                />
+                {parsing && <span className="text-sm text-gray-400">Читаю файл…</span>}
+              </div>
+              {parsedFrom && !parsing && (
+                <p className="mt-1 text-xs text-green-700">Загружено из «{parsedFrom}» — проверьте и при необходимости поправьте строки.</p>
+              )}
+              {parseError && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{parseError}</p>}
+            </div>
+
+            <div className="mt-3 space-y-2">
+              {rows.map((r, i) => (
+                <div key={i} className="flex items-center gap-2">
+                  <span className="w-6 text-right text-xs text-gray-400">{i + 1}.</span>
+                  <input
+                    placeholder="Статья себестоимости / подрядчик"
+                    value={r.name}
+                    onChange={(e) => setRow(i, { name: e.target.value })}
+                    className={`${inputCls} mt-0 flex-1`}
+                  />
+                  <input
+                    inputMode="decimal"
+                    placeholder="Сумма, ₸"
+                    value={r.fee}
+                    onChange={(e) => setRow(i, { fee: e.target.value })}
+                    className={`${inputCls} mt-0 w-44`}
+                  />
+                  {rows.length > 1 && (
+                    <button type="button" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-600" title="Убрать">✕</button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button type="button" onClick={() => setRows((rs) => [...rs, { ...emptyRow }])} className="mt-2 text-sm text-indigo-600 hover:underline">
+              + Добавить строку
+            </button>
+          </div>
+          )}
 
           {/* Живой расчёт экономики */}
           <div className="grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-3 lg:grid-cols-6">
             <div><p className="text-xs text-gray-500">НДС (16/116)</p><p className="font-medium">{fmt(totals.vat)}</p></div>
             <div><p className="text-xs text-gray-500">Без НДС</p><p className="font-medium">{fmt(totals.net)}</p></div>
             <div><p className="text-xs text-gray-500">Себестоимость</p><p className="font-medium">{fmt(totals.cost)}</p></div>
-            <div><p className="text-xs text-gray-500">Продакшн</p><p className="font-medium">{fmt(totals.reserves)}</p></div>
+            {isInfluence && <div><p className="text-xs text-gray-500">Продакшн</p><p className="font-medium">{fmt(totals.reserves)}</p></div>}
             <div>
               <p className="text-xs text-gray-500">Маржа</p>
               <p className={`font-medium ${totals.margin < 0 ? "text-red-600" : "text-green-700"}`}>{fmt(totals.margin)}</p>
