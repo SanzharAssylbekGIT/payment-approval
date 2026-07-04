@@ -5,6 +5,7 @@ import { getProjectDetailForUser } from "@/lib/projects/queries";
 import { saveEstimate } from "@/lib/estimates/actions";
 import { closeProject, reopenProject } from "@/lib/projects/actions";
 import { formatTiyn, tiynToInputString } from "@/lib/money";
+import { projectCode } from "@/lib/projects/code";
 import { SERVICE_LABELS, INCOMING_STATUS_LABELS, INCOMING_STATUS_STYLES } from "@/lib/accounting/labels";
 import { DELIVERABLE_LABELS } from "@/lib/requests/status";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -38,7 +39,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         <Link href="/projects" className="text-sm text-gray-500 hover:underline">← К проектам</Link>
         <div className="mt-1 flex items-center gap-3">
           <h1 className="text-xl font-semibold text-gray-900">
-            <span className="mr-1.5 text-gray-400">№ {project.number}</span>
+            <span className="mr-1.5 text-gray-400">{projectCode(project.serviceType, project.number)}</span>
             {project.client?.name ? `${project.client.name} · ` : ""}{project.name}
           </h1>
           <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{SERVICE_LABELS[project.serviceType]}</span>

@@ -260,8 +260,8 @@ model Project {
   clientId    String?
   client      Client?       @relation(fields: [clientId], references: [id])
   name        String // напр. «Наурыз», «Техноблогеры», «8 марта»
-  // Сквозной номер проекта по компании: присваивается системой (max+1),
-  // не зависит от того, кто занёс проект и какая услуга.
+  // Номер проекта: присваивается системой (max+1), нумерация СВОЯ у каждого
+  // направления (IM-# блогеры, PR-# продакшн, EV-# ивенты, SP-# спецпроекты).
   number      Int
   serviceType ServiceType
   status      ProjectStatus @default(ACTIVE)
@@ -285,7 +285,7 @@ model Project {
   incomings       Incoming[]
   transactions    Transaction[]
 
-  @@unique([entityId, number])
+  @@unique([entityId, serviceType, number])
   @@index([entityId, clientId])
   @@map("projects")
 }

@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useMemo, useState, useTransition, type ChangeEvent } from "react";
 import { createDeal, createClient, parseEstimateExcel, type DealState } from "@/lib/projects/actions";
 import { COMPANY_FORMS, KZ_BANKS, kbeDescription, type CompanyFormValue } from "@/lib/clients/constants";
+import { projectCode } from "@/lib/projects/code";
 import type { ServiceType } from "@prisma/client";
 
 const inputCls =
@@ -431,9 +432,9 @@ function DealModal({
             <div>
               <label className="block text-sm font-medium text-gray-700">Номер проекта</label>
               <div className="mt-1 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
-                № {nextNumber}
+                {projectCode(service, nextNumber)}
               </div>
-              <p className="mt-1 text-xs text-gray-400">Присваивается системой автоматически, сквозная нумерация по компании.</p>
+              <p className="mt-1 text-xs text-gray-400">Присваивается системой автоматически — своя нумерация у каждого направления.</p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Название проекта *</label>

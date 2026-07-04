@@ -279,8 +279,8 @@ async function seedDemo(userId: Record<string, string>, ledgerId: Record<string,
     create: { id: "demo_client_yandex", entityId: ENTITY_ID, name: "Яндекс Поиск" },
   });
 
-  // Сквозной номер проекта (система присваивает max+1) — для сида считаем сами.
-  const maxProjectNumber = (await prisma.project.aggregate({ where: { entityId: ENTITY_ID }, _max: { number: true } }))._max.number ?? 0;
+  // Номер проекта — своя нумерация у направления (IM-#); для сида считаем сами.
+  const maxProjectNumber = (await prisma.project.aggregate({ where: { entityId: ENTITY_ID, serviceType: ServiceType.INFLUENCE }, _max: { number: true } }))._max.number ?? 0;
   const project = await prisma.project.upsert({
     where: { id: "demo_project_nauryz" },
     update: { name: "Наурыз" },

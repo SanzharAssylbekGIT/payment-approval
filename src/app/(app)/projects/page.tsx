@@ -3,6 +3,7 @@ import { requireRole, canSeeEverything, hasRole } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { getProjectsByService } from "@/lib/projects/queries";
 import { nextProjectNumber } from "@/lib/projects/numbering";
+import { projectCode } from "@/lib/projects/code";
 import { formatTiyn, tiynToInputString } from "@/lib/money";
 import { NewDealForm, type BloggerOpt } from "./NewDealForm";
 import type { ServiceType } from "@prisma/client";
@@ -66,7 +67,7 @@ export default async function ProjectsPage({
           select: { id: true, fullName: true },
         })
       : Promise.resolve([]),
-    nextProjectNumber(user.entityId),
+    nextProjectNumber(user.entityId, active.service),
   ]);
 
   // BigInt-прайсы → строки тенге для клиентского компонента. Прайс для
@@ -154,7 +155,7 @@ export default async function ProjectsPage({
             <tbody className="divide-y divide-gray-100">
               {projects.map((p) => (
                 <tr key={p.id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-gray-500">{p.number}</td>
+                  <td className="px-4 py-3 text-gray-500">{projectCode(active.service, p.number)}</td>
                   <td className="px-4 py-3">
                     <Link href={`/projects/${p.id}`} className="font-medium text-indigo-600 hover:underline">
                       {p.name}

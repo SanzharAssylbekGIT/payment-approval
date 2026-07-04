@@ -10,6 +10,7 @@ import { parseTengeToTiyn } from "@/lib/money";
 import { EstimateError, saveEstimateVersion, getScopedProject, type EstimateLineInput } from "@/lib/estimates/service";
 import { parseEstimateXlsx, type ParsedEstimateRow } from "@/lib/estimates/excel";
 import { createProjectNumbered } from "@/lib/projects/numbering";
+import { projectCode } from "@/lib/projects/code";
 import type { BloggerDeliverable } from "@prisma/client";
 
 export type DealState = { error?: string; ok?: boolean };
@@ -184,7 +185,7 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
     action: "PROJECT_CREATED",
     targetType: "Project",
     targetId: project.id,
-    comment: `Проект № ${project.number} «${project.name}»: продажник ${owner?.fullName ?? user.fullName}, проджект ${pm.fullName}`,
+    comment: `Проект ${projectCode(project.serviceType, project.number)} «${project.name}»: продажник ${owner?.fullName ?? user.fullName}, проджект ${pm.fullName}`,
   });
 
   revalidatePath("/projects");
