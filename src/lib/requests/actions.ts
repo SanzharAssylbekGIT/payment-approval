@@ -140,12 +140,15 @@ function buildInput(formData: FormData): { input: RequestInput; serviceRendered:
     VALID_DELIVERABLES.includes(v as BloggerDeliverable),
   );
   const serviceRendered = formData.get("serviceRendered") === "on";
+  // Мультивыбор позиций сметы (продакшн): чекбоксы estimateLineIds.
+  const estimateLineIds = (formData.getAll("estimateLineIds") as string[]).filter(Boolean);
 
   const input: RequestInput = {
     expenseTypeId: d.expenseTypeId,
     projectId: d.projectId,
     recipientId: d.recipientId,
     estimateLineId: d.estimateLineId,
+    estimateLineIds,
     amountTiyn,
     contractAmountTiyn,
     paymentPercent,

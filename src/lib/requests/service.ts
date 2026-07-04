@@ -28,6 +28,9 @@ export interface RequestInput {
   projectId?: string;
   recipientId?: string;
   estimateLineId?: string;
+  // Продакшн и прочие проектные (не блогер): одна заявка может закрывать
+  // НЕСКОЛЬКО позиций сметы разом (мультивыбор).
+  estimateLineIds?: string[];
   // Обычная заявка — сумма напрямую.
   amountTiyn?: bigint;
   // Форма блогера — сумма к оплате считается из договора и %.
@@ -171,6 +174,26 @@ async function assertAccessAndProject(user: AuthenticatedUser, expenseType: Expe
     });
     if (!line) throw new RequestError("Строка сметы не относится к проекту");
   }
+  const lineIds = uniqueLineIds(input);
+  if (lineIds.length > 0) {
+    const count = await prisma.estimateLine.count({
+      where: { id: { in: lineIds }, kind: "RECIPIENT", version: { estimate: { projectId: project.id } } },
+    });
+    if (count !== lineIds.length) throw new RequestError("Некоторые позиции сметы не относятся к проекту");
+  }
+}
+
+function uniqueLineIds(input: RequestInput): string[] {
+  return [...new Set((input.estimateLineIds ?? []).filter(Boolean))];
+}
+
+// Синхронизирует связь «заявка ↔ позиции сметы» (мультивыбор продакшна).
+async function syncRequestLines(requestId: string, input: RequestInput) {
+  const ids = uniqueLineIds(input);
+  await prisma.paymentRequestLine.deleteMany({ where: { requestId } });
+  if (ids.length > 0) {
+    await prisma.paymentRequestLine.createMany({ data: ids.map((estimateLineId) => ({ requestId, estimateLineId })) });
+  }
 }
 
 // Следующий номер = max(существующих)+1, а не count+1: count ломается при
@@ -220,15 +243,22 @@ async function assertBloggerPercentLimit(
 }
 
 // Проектные поля пишем только для проектных видов расхода. У блогера строка
-// сметы — это утверждённая опция сделки (блогер × опция), тоже сохраняем.
+// сметы — это утверждённая опция сделки (блогер × опция). Для остальных
+// проектных видов позиции идут мультивыбором (estimateLineIds); одиночное
+// поле estimateLineId заполняем, когда позиция ровно одна (план-факт).
 function projectData(expenseType: ExpenseType, input: RequestInput) {
   if (!expenseType.isProjectCost) {
     return { projectId: null, recipientId: null, estimateLineId: null };
   }
+  const ids = uniqueLineIds(input);
   return {
     projectId: input.projectId ?? null,
     recipientId: input.recipientId ?? null,
-    estimateLineId: input.estimateLineId ?? null,
+    estimateLineId: isBloggerFee(expenseType)
+      ? input.estimateLineId ?? null
+      : ids.length === 1
+        ? ids[0]
+        : input.estimateLineId ?? null,
   };
 }
 
@@ -279,6 +309,8 @@ export async function createRequestForUser(user: AuthenticatedUser, input: Reque
     }
   }
 
+  if (!isBloggerFee(expenseType)) await syncRequestLines(created.id, input);
+
   await writeAudit({ entityId: user.entityId, userId: user.id, action: "REQUEST_CREATED", targetType: "PaymentRequest", targetId: created.id, comment: `Создана заявка ${created.number}` });
   return created;
 }
@@ -322,6 +354,8 @@ export async function updateRequestForUser(user: AuthenticatedUser, id: string, 
       deliverables: fields.deliverables,
     },
   });
+
+  await syncRequestLines(id, isBloggerFee(expenseType) ? { ...input, estimateLineIds: [] } : input);
 
   await writeAudit({ entityId: user.entityId, userId: user.id, action: "REQUEST_UPDATED", targetType: "PaymentRequest", targetId: id, comment: "Заявка отредактирована" });
   return updated;

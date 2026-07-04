@@ -104,6 +104,14 @@ export default async function RequestDetailPage({
         {req.project && <Field label="Проект" value={`${req.project.client?.name ? req.project.client.name + " · " : ""}${req.project.name}`} />}
         {req.recipient && <Field label={isBloggerLike ? "Блогер" : "Получатель"} value={req.recipient.name} />}
         {req.estimateLine && <Field label="Строка сметы" value={`${req.estimateLine.title} (план ${formatTiyn(req.estimateLine.plannedAmount)})`} />}
+        {req.estimateLines.length > 1 && (
+          <div className="col-span-2">
+            <Field
+              label={`Позиции сметы (${req.estimateLines.length})`}
+              value={req.estimateLines.map((l) => `${l.estimateLine.title} (${formatTiyn(l.estimateLine.plannedAmount)})`).join(", ")}
+            />
+          </div>
+        )}
         {req.contractAmount != null && <Field label="Сумма по договору" value={formatTiyn(req.contractAmount)} />}
         {req.paymentPercent != null && <Field label="% от оплаты" value={`${req.paymentPercent}%`} />}
         {req.paymentTiming && <Field label="Оплата" value={PAYMENT_TIMING_LABELS[req.paymentTiming]} />}

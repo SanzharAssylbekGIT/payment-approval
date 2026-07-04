@@ -126,6 +126,7 @@ export async function getRequestForUser(user: AuthenticatedUser, id: string) {
       project: { include: { client: true } },
       recipient: true,
       estimateLine: true,
+      estimateLines: { include: { estimateLine: true } },
       createdBy: true,
       attachments: true,
       approvals: { include: { approver: true, step: true }, orderBy: { decidedAt: "asc" } },

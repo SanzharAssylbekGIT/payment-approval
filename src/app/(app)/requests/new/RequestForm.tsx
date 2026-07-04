@@ -32,6 +32,7 @@ export interface RequestInitial {
   projectId: string;
   recipientId: string;
   estimateLineId: string;
+  estimateLineIds: string[]; // мультивыбор позиций сметы (продакшн)
   amount: string;
   contractAmount: string;
   paymentPercent: string;
@@ -78,6 +79,9 @@ export function RequestForm({
   const [projectId, setProjectId] = useState(initial?.projectId ?? "");
   const [recipientId, setRecipientId] = useState(initial?.recipientId ?? "");
   const [estimateLineId, setEstimateLineId] = useState(initial?.estimateLineId ?? "");
+  const [lineIds, setLineIds] = useState<string[]>(initial?.estimateLineIds ?? []);
+  const [amount, setAmount] = useState(initial?.amount ?? "");
+  const [purpose, setPurpose] = useState(initial?.purpose ?? "");
   const [urgency, setUrgency] = useState<Urgency>(initial?.urgency ?? "NOT_URGENT");
   const [desiredPayDate, setDesiredPayDate] = useState(initial?.desiredPayDate ?? "");
   const [contractAmount, setContractAmount] = useState(initial?.contractAmount ?? "");
@@ -166,6 +170,22 @@ export function RequestForm({
     if (line && !contractAmount.trim()) setContractAmount(tiynToInputString(BigInt(line.plannedAmount)));
   }
 
+  // Продакшн: мультивыбор позиций сметы — одной заявкой можно оплатить
+  // несколько позиций разом. Сумма и назначение подставляются автоматически.
+  const AUTO_PURPOSE = "Оплата по смете: ";
+  function toggleLine(id: string) {
+    const next = lineIds.includes(id) ? lineIds.filter((x) => x !== id) : [...lineIds, id];
+    setLineIds(next);
+    const lines = (selectedProject?.estimateLines ?? []).filter((l) => next.includes(l.id));
+    if (lines.length > 0) {
+      setAmount(tiynToInputString(lines.reduce((s, l) => s + BigInt(l.plannedAmount), 0n)));
+    }
+    setPurpose((p) => (!p.trim() || p.startsWith(AUTO_PURPOSE)) && lines.length > 0
+      ? AUTO_PURPOSE + lines.map((l) => l.title).join(", ")
+      : p);
+    if (lines.length === 1 && lines[0].recipientId) setRecipientId(lines[0].recipientId);
+  }
+
   // Черновики/префилл блогера: срочность приводим к «плановая/срочно», дата —
   // ближайший четверг, если не задана. Только на клиенте после маунта.
   useEffect(() => {
@@ -247,6 +267,7 @@ export function RequestForm({
               setProjectId("");
               setRecipientId("");
               setEstimateLineId("");
+              setLineIds([]);
             }}
             className={inputCls}
           >
@@ -272,6 +293,7 @@ export function RequestForm({
                   setProjectId(e.target.value);
                   setRecipientId("");
                   setEstimateLineId("");
+                  setLineIds([]);
                 }}
                 className={inputCls}
               >
@@ -311,20 +333,42 @@ export function RequestForm({
                     ))}
                   </select>
                 </div>
-                {/* Строка сметы — для всех проектных видов, КРОМЕ блогера */}
-                {!isBlogger && (
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Строка сметы (план)</label>
-                    <select name="estimateLineId" className={inputCls} defaultValue={initial?.estimateLineId ?? ""}>
-                      <option value="">— не привязывать —</option>
-                      {selectedProject.estimateLines.map((l) => (
-                        <option key={l.id} value={l.id}>
-                          {l.title}
-                        </option>
+              </div>
+            )}
+
+            {/* Позиции сметы — для всех проектных видов, КРОМЕ блогера.
+                Мультивыбор: одной заявкой можно оплатить несколько позиций. */}
+            {selectedProject && !isBlogger && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700">Позиции сметы (можно несколько)</label>
+                {selectedProject.estimateLines.filter((l) => l.kind === "RECIPIENT").length === 0 ? (
+                  <p className="mt-1 text-sm text-gray-400">У проекта пока нет позиций сметы.</p>
+                ) : (
+                  <div className="mt-2 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-3">
+                    {selectedProject.estimateLines
+                      .filter((l) => l.kind === "RECIPIENT")
+                      .map((l) => (
+                        <label key={l.id} className="flex cursor-pointer items-center justify-between gap-3 rounded px-1 py-0.5 text-sm hover:bg-gray-50">
+                          <span className="flex items-center gap-2 text-gray-700">
+                            <input
+                              type="checkbox"
+                              name="estimateLineIds"
+                              value={l.id}
+                              checked={lineIds.includes(l.id)}
+                              onChange={() => toggleLine(l.id)}
+                              className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                            />
+                            {l.title}
+                            {l.option ? <span className="text-xs text-gray-400">{l.option}</span> : null}
+                          </span>
+                          <span className="whitespace-nowrap text-gray-500">{formatTengeInput(Number(l.plannedAmount) / 100)}</span>
+                        </label>
                       ))}
-                    </select>
                   </div>
                 )}
+                <p className="mt-1 text-xs text-gray-400">
+                  Отметьте одну или несколько позиций — сумма заявки и назначение платежа подставятся автоматически (их можно поправить).
+                </p>
               </div>
             )}
           </>
@@ -451,11 +495,11 @@ export function RequestForm({
           <>
             <div>
               <label className="block text-sm font-medium text-gray-700">Сумма, ₸ *</label>
-              <input name="amount" inputMode="decimal" placeholder="350 000" required defaultValue={initial?.amount ?? ""} className={inputCls} />
+              <input name="amount" inputMode="decimal" placeholder="350 000" required value={amount} onChange={(e) => setAmount(e.target.value)} className={inputCls} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Назначение платежа *</label>
-              <input name="purpose" required placeholder="За что платим" defaultValue={initial?.purpose ?? ""} className={inputCls} />
+              <input name="purpose" required placeholder="За что платим" value={purpose} onChange={(e) => setPurpose(e.target.value)} className={inputCls} />
             </div>
           </>
         )}

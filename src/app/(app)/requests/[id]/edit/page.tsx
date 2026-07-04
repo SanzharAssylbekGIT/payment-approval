@@ -24,6 +24,7 @@ export default async function EditRequestPage({ params }: { params: Promise<{ id
     projectId: req.projectId ?? "",
     recipientId: req.recipientId ?? "",
     estimateLineId: req.estimateLineId ?? "",
+    estimateLineIds: req.estimateLines.map((l) => l.estimateLineId),
     amount: tiynToInput(req.amount),
     contractAmount: tiynToInput(req.contractAmount),
     paymentPercent: req.paymentPercent != null ? String(req.paymentPercent) : "",

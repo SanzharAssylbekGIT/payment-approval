@@ -26,6 +26,7 @@ export default async function NewRequestPage({
         projectId: project.id,
         recipientId: recipient,
         estimateLineId: "",
+        estimateLineIds: [],
         amount: "",
         contractAmount: "",
         paymentPercent: "",

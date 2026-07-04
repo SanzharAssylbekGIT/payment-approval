@@ -444,6 +444,7 @@ model EstimateLine {
   // Скидка = baseFee − plannedAmount (если baseFee задан и больше гонорара).
 
   paymentRequests PaymentRequest[]
+  requestLinks    PaymentRequestLine[]
 
   @@index([versionId])
   @@map("estimate_lines")
@@ -606,11 +607,27 @@ model PaymentRequest {
   transactions  Transaction[]
   registerItems PayoutRegisterItem[]
   bankLines     BankStatementLine[] @relation("RequestBankMatch")
+  // Продакшн: одна заявка может закрывать НЕСКОЛЬКО позиций сметы разом.
+  estimateLines PaymentRequestLine[]
 
   @@unique([entityId, number])
   @@index([entityId, status])
   @@index([createdById])
   @@map("payment_requests")
+}
+
+// Связь «заявка ↔ позиции сметы» (мультивыбор в продакшне: один платёж
+// закрывает несколько статей — например, камера + свет одному подрядчику).
+model PaymentRequestLine {
+  id             String         @id @default(cuid())
+  requestId      String
+  request        PaymentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  estimateLineId String
+  estimateLine   EstimateLine   @relation(fields: [estimateLineId], references: [id], onDelete: Cascade)
+
+  @@unique([requestId, estimateLineId])
+  @@index([estimateLineId])
+  @@map("payment_request_lines")
 }
 
 enum ApprovalDecision {
