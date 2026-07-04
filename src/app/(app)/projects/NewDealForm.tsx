@@ -22,14 +22,19 @@ interface ClientOpt {
 
 interface Row {
   bloggerId: string; // id из базы | "" | "__custom__" (не из базы)
-  name: string; // имя (для «не из базы»)
+  name: string; // имя (для «не из базы») / статья сметы (продакшн)
   optionName: string; // выбранная опция из прайса | "__custom__" | ""
   custom: string; // своя опция текстом
-  fee: string; // гонорар (себес с налогом), тенге
+  fee: string; // гонорар / сумма строки (себес с налогом), тенге
   reserve: string; // продакшн-резерв по этой строке (блогер × опция), тенге
+  // Продакшн-смета из Excel: раздел и детали строки (кол-во × смены × цена).
+  section: string;
+  qty: string;
+  days: string;
+  rate: string;
 }
 
-const emptyRow: Row = { bloggerId: "", name: "", optionName: "", custom: "", fee: "", reserve: "" };
+const emptyRow: Row = { bloggerId: "", name: "", optionName: "", custom: "", fee: "", reserve: "", section: "", qty: "", days: "", rate: "" };
 
 function num(s: string): number {
   const n = Number(String(s).replace(/\s/g, "").replace(",", "."));
@@ -101,12 +106,37 @@ function DealModal({
     startParsing(async () => {
       const res = await parseEstimateExcel(fd);
       if (res.rows) {
-        setRows(res.rows.map((r) => ({ ...emptyRow, name: r.name, fee: r.amount })));
+        setRows(
+          res.rows.map((r) => ({
+            ...emptyRow,
+            name: r.name,
+            fee: r.amount,
+            section: r.section ?? "",
+            qty: r.qty ?? "",
+            days: r.days ?? "",
+            rate: r.rate ?? "",
+          })),
+        );
         setParsedFrom(f.name);
       } else {
         setParseError(res.error ?? "Не удалось прочитать файл");
       }
     });
+  }
+
+  // Продакшн-строка: правка кол-ва/смен/цены пересчитывает сумму строки.
+  function setProdRow(i: number, patch: Partial<Row>) {
+    setRows((rs) =>
+      rs.map((r, j) => {
+        if (j !== i) return r;
+        const next = { ...r, ...patch };
+        if ("qty" in patch || "days" in patch || "rate" in patch) {
+          const q = num(next.qty), d = num(next.days), rt = num(next.rate);
+          if (q > 0 && d > 0 && rt > 0) next.fee = String(Math.round(q * d * rt * 100) / 100);
+        }
+        return next;
+      }),
+    );
   }
 
   // Экран внутри окна: сама сделка или добавление нового клиента.
@@ -650,30 +680,75 @@ function DealModal({
               {parseError && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{parseError}</p>}
             </div>
 
-            <div className="mt-3 space-y-2">
-              {rows.map((r, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <span className="w-6 text-right text-xs text-gray-400">{i + 1}.</span>
-                  <input
-                    placeholder="Статья себестоимости / подрядчик"
-                    value={r.name}
-                    onChange={(e) => setRow(i, { name: e.target.value })}
-                    className={`${inputCls} mt-0 flex-1`}
-                  />
-                  <input
-                    inputMode="decimal"
-                    placeholder="Сумма, ₸"
-                    value={r.fee}
-                    onChange={(e) => setRow(i, { fee: e.target.value })}
-                    className={`${inputCls} mt-0 w-44`}
-                  />
-                  {rows.length > 1 && (
-                    <button type="button" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-600" title="Убрать">✕</button>
-                  )}
-                </div>
-              ))}
+            {/* Подписи колонок (как в шаблоне сметы) */}
+            <div className="mt-3 flex items-center gap-2 pl-8 pr-6 text-[11px] uppercase text-gray-400">
+              <span className="flex-1">Наименование работ</span>
+              <span className="w-14 text-center">Шт.</span>
+              <span className="w-14 text-center">Смен</span>
+              <span className="w-32 text-right">Цена, ₸</span>
+              <span className="w-36 text-right">Итого, ₸</span>
             </div>
-            <button type="button" onClick={() => setRows((rs) => [...rs, { ...emptyRow }])} className="mt-2 text-sm text-indigo-600 hover:underline">
+            <div className="mt-1 space-y-1.5">
+              {rows.map((r, i) => {
+                const showSection = r.section && (i === 0 || rows[i - 1].section !== r.section);
+                return (
+                  <div key={i}>
+                    {showSection && (
+                      <p className="mb-1 mt-3 rounded bg-gray-50 px-2 py-1 text-xs font-semibold text-gray-600">{r.section}</p>
+                    )}
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 text-right text-xs text-gray-400">{i + 1}.</span>
+                      <input
+                        placeholder="Статья себестоимости / подрядчик"
+                        value={r.name}
+                        onChange={(e) => setProdRow(i, { name: e.target.value })}
+                        className={`${inputCls} mt-0 min-w-40 flex-1`}
+                      />
+                      <input
+                        inputMode="numeric"
+                        placeholder="шт"
+                        title="Количество"
+                        value={r.qty}
+                        onChange={(e) => setProdRow(i, { qty: e.target.value })}
+                        className={`${inputCls} mt-0 w-14 text-center`}
+                      />
+                      <input
+                        inputMode="numeric"
+                        placeholder="см."
+                        title="Кол-во смен"
+                        value={r.days}
+                        onChange={(e) => setProdRow(i, { days: e.target.value })}
+                        className={`${inputCls} mt-0 w-14 text-center`}
+                      />
+                      <input
+                        inputMode="decimal"
+                        placeholder="цена"
+                        title="Цена за смену/шт."
+                        value={r.rate}
+                        onChange={(e) => setProdRow(i, { rate: e.target.value })}
+                        className={`${inputCls} mt-0 w-32 text-right`}
+                      />
+                      <input
+                        inputMode="decimal"
+                        placeholder="Сумма, ₸"
+                        value={r.fee}
+                        onChange={(e) => setProdRow(i, { fee: e.target.value })}
+                        className={`${inputCls} mt-0 w-36 text-right font-medium`}
+                      />
+                      {rows.length > 1 && (
+                        <button type="button" onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))} className="text-gray-400 hover:text-red-600" title="Убрать">✕</button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs text-gray-400">Кол-во × смены × цена пересчитывают «Итого» строки автоматически; сумму можно поправить и вручную.</p>
+            <button
+              type="button"
+              onClick={() => setRows((rs) => [...rs, { ...emptyRow, section: rs[rs.length - 1]?.section ?? "" }])}
+              className="mt-2 text-sm text-indigo-600 hover:underline"
+            >
               + Добавить строку
             </button>
           </div>
