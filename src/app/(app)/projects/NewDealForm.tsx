@@ -143,6 +143,15 @@ function DealModal({
       setNewClientError("Укажите название клиента");
       return;
     }
+    // Лимиты по законодательству: БИН — ровно 12 цифр; счёт РК — IBAN 20 знаков.
+    if (nc.bin && nc.bin.length !== 12) {
+      setNewClientError("БИН должен состоять ровно из 12 цифр");
+      return;
+    }
+    if (nc.account.startsWith("KZ") && nc.account.length !== 20) {
+      setNewClientError("Казахстанский счёт (IBAN) — ровно 20 знаков: KZ и ещё 18");
+      return;
+    }
     startSavingClient(async () => {
       const res = await createClient({
         name: nc.name,
@@ -274,22 +283,40 @@ function DealModal({
                   <label className="block text-sm font-medium text-gray-700">БИН</label>
                   <input
                     value={nc.bin}
-                    onChange={(e) => setNc((s) => ({ ...s, bin: e.target.value }))}
+                    onChange={(e) => {
+                      // По законодательству РК БИН — ровно 12 цифр: лишнее не даём ввести.
+                      const v = e.target.value.replace(/\D/g, "").slice(0, 12);
+                      setNc((s) => ({ ...s, bin: v }));
+                    }}
                     placeholder="123456789012"
                     inputMode="numeric"
                     maxLength={12}
                     className={inputCls}
                   />
-                  <p className="mt-1 text-xs text-gray-400">12 цифр; у иностранной компании может отсутствовать.</p>
+                  <p className={`mt-1 text-xs ${nc.bin && nc.bin.length !== 12 ? "text-amber-600" : "text-gray-400"}`}>
+                    {nc.bin ? `${nc.bin.length}/12 цифр` : "12 цифр; у иностранной компании может отсутствовать."}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Номер счёта (IBAN)</label>
                   <input
                     value={nc.account}
-                    onChange={(e) => setNc((s) => ({ ...s, account: e.target.value }))}
-                    placeholder="KZ00 0000 0000 0000 0000"
+                    onChange={(e) => {
+                      // IBAN: только буквы/цифры, капсом. Счёт РК (KZ…) — ровно 20
+                      // знаков, иностранный — до 34 (ISO 13616).
+                      let v = e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "");
+                      v = v.slice(0, v.startsWith("KZ") ? 20 : 34);
+                      setNc((s) => ({ ...s, account: v }));
+                    }}
+                    placeholder="KZ000000000000000000"
+                    maxLength={34}
                     className={inputCls}
                   />
+                  <p className={`mt-1 text-xs ${nc.account.startsWith("KZ") && nc.account.length !== 20 ? "text-amber-600" : "text-gray-400"}`}>
+                    {nc.account.startsWith("KZ")
+                      ? `${nc.account.length}/20 знаков (счёт РК: KZ + 18)`
+                      : "Счёт РК — 20 знаков (KZ + 18); иностранный — до 34."}
+                  </p>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700">Банк</label>
