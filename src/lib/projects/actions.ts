@@ -58,7 +58,6 @@ function parseDate(s: string): Date {
 export async function createDeal(_prev: DealState, formData: FormData): Promise<DealState> {
   const user = await requireUser();
   const seeAll = hasRole(user, "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO");
-  if (!hasRole(user, "ACCOUNT_MANAGER") && !seeAll) return { error: "Заносить проекты могут продажники ком-блока" };
 
   const parsed = dealSchema.safeParse({
     name: formData.get("name"),
@@ -73,6 +72,20 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
   const d = parsed.data;
+
+  // Кто создаёт (DECISIONS §14/§18): спецпроекты — исполнитель направления
+  // (департамент вида расхода SPEC_PROJECT, т.е. Айсулу) и финансы; остальные
+  // направления — продажники (ACCOUNT_MANAGER) и финансы.
+  if (d.serviceType === "SPEC_PROJECT") {
+    const specType = await prisma.expenseType.findFirst({
+      where: { entityId: user.entityId, code: "SPEC_PROJECT", isActive: true },
+      select: { departmentId: true },
+    });
+    const isExecutor = !!user.departmentId && user.departmentId === specType?.departmentId;
+    if (!isExecutor && !seeAll) return { error: "Спецпроекты создаёт исполнитель направления (или финансы)" };
+  } else if (!hasRole(user, "ACCOUNT_MANAGER") && !seeAll) {
+    return { error: "Заносить проекты могут продажники ком-блока" };
+  }
 
   // Проджект: обязателен, с ролью PROJECT_MANAGER.
   const pm = await prisma.user.findFirst({

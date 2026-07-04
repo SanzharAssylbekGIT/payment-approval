@@ -70,7 +70,7 @@ const USERS: {
   { key: "kristiana", email: "kristiana.denisenko@bravetalents.com", fullName: "Кристиана Денисенко", position: "Креатив-лид", dept: "CREATIVE", roles: [RoleName.APPROVER, RoleName.REQUESTER] },
   { key: "dimash", email: "dinmukhamed.toibazar@bravetalents.com", fullName: "Динмухамед Тойбазар (Димаш)", position: "Мл. линейный продюсер", dept: "PRODUCTION", roles: [RoleName.REQUESTER] },
   { key: "ramzat", email: "ramzat.mahametov@bravetalents.com", fullName: "Рамзат Махаметов", position: "Линейный продюсер", dept: "PRODUCTION", roles: [RoleName.REQUESTER] },
-  { key: "aisulu", email: "aisulu.mussabekova@bravetalents.com", fullName: "Айсулу Мусабекова", position: "Продюсер (Event)", dept: "EVENTS", roles: [RoleName.REQUESTER] },
+  { key: "aisulu", email: "aisulu.mussabekova@bravetalents.com", fullName: "Айсулу Мусабекова", position: "Продюсер (Event/Spec)", dept: "EVENTS", roles: [RoleName.REQUESTER, RoleName.PROJECT_MANAGER] },
   { key: "tima", email: "tima@bravetalents.com", fullName: "Тима", position: "Продюсер (Event/Spec)", dept: "COMMERCIAL", roles: [RoleName.REQUESTER] },
   { key: "zhaskairat", email: "zhaskairat@bravetalents.com", fullName: "Жаскайрат", position: "Ассистент", dept: "MANAGEMENT", roles: [RoleName.REQUESTER] },
   { key: "office_manager", email: "office.manager@bravetalents.com", fullName: "Офис-менеджер", position: "Офис-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
@@ -95,7 +95,7 @@ const EXPENSE_TYPES: {
   { code: "PRODUCTION_BUDGET", name: "Продакшн-бюджет (Influence)", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, urgency: Urgency.MEDIUM, dept: "PRODUCTION", route: ["ainur"] },
   { code: "VIDEO_PHOTO", name: "Video/Photo production", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.VIDEO_PHOTO, urgency: Urgency.MEDIUM, dept: "PRODUCTION", route: ["ainur"] },
   { code: "EVENT", name: "Event", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.EVENT, urgency: Urgency.MEDIUM, dept: "EVENTS", route: ["sanzhar"] },
-  { code: "SPEC_PROJECT", name: "Spec project", accountKind: AccountKind.SPECPROJECT, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.SPEC_PROJECT, urgency: Urgency.MEDIUM, dept: "COMMERCIAL", route: ["sanzhar"] },
+  { code: "SPEC_PROJECT", name: "Spec project", accountKind: AccountKind.SPECPROJECT, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.SPEC_PROJECT, urgency: Urgency.MEDIUM, dept: "EVENTS", route: ["sanzhar"] },
   // Прочие расходы (6890)
   { code: "COMMERCIAL_EXP", name: "Расходы ком-блока", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "COMMERCIAL", route: ["azhar"] },
   { code: "BLOGGERS_DEPT_EXP", name: "Расходы блог-департамента", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "BLOGGERS", route: ["rakhima"] },
