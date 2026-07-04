@@ -38,6 +38,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         <Link href="/projects" className="text-sm text-gray-500 hover:underline">← К проектам</Link>
         <div className="mt-1 flex items-center gap-3">
           <h1 className="text-xl font-semibold text-gray-900">
+            <span className="mr-1.5 text-gray-400">№ {project.number}</span>
             {project.client?.name ? `${project.client.name} · ` : ""}{project.name}
           </h1>
           <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs text-gray-600">{SERVICE_LABELS[project.serviceType]}</span>
@@ -70,7 +71,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
         <p className="mt-0.5 text-xs text-gray-400">
           Зарегистрирован {project.createdAt.toLocaleDateString("ru-RU")}
           {project.realizationDate ? ` · реализация ${project.realizationDate.toLocaleDateString("ru-RU")}` : ""}
-          {project.completionDate ? ` · завершение ${project.completionDate.toLocaleDateString("ru-RU")}` : ""}
+          {project.completionDate ? ` · план. завершение ${project.completionDate.toLocaleDateString("ru-RU")}` : ""}
         </p>
       </div>
 
@@ -108,7 +109,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
           {current && (
             <span className="text-xs text-gray-400">
               НДС {formatTiyn(current.vatAmount)} · маржа {formatTiyn(current.marginAmount)}
-              {current.depositAmount > 0n ? ` · депозит ${formatTiyn(current.depositAmount)}` : ""}
+              {current.depositAmount > 0n ? ` · продакшн-резерв ${formatTiyn(current.depositAmount)}` : ""}
             </span>
           )}
         </div>
@@ -131,6 +132,9 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                       </td>
                       <td className="py-1.5 text-right">
                         <span className="font-medium text-gray-900">{formatTiyn(l.plannedAmount)}</span>
+                        {l.reserveAmount > 0n && (
+                          <span className="ml-2 text-xs text-gray-500">+ резерв {formatTiyn(l.reserveAmount)}</span>
+                        )}
                         {discount > 0n && (
                           <span className="ml-2 text-xs text-green-700" title={`Прайс по базе: ${formatTiyn(l.baseFee!)}`}>
                             скидка {formatTiyn(discount)}

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireRole, canSeeEverything, hasRole } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { getProjectsByService } from "@/lib/projects/queries";
+import { nextProjectNumber } from "@/lib/projects/numbering";
 import { formatTiyn, tiynToInputString } from "@/lib/money";
 import { NewDealForm, type BloggerOpt } from "./NewDealForm";
 import type { ServiceType } from "@prisma/client";
@@ -37,10 +38,11 @@ export default async function ProjectsPage({
     }),
     { gross: 0n, received: 0n, paid: 0n, receivable: 0n },
   );
-  // Заносить сделки могут продажники (ACCOUNT_MANAGER) и финансы; проджекты — только смотрят.
-  const canCreate = seeAll || hasRole(user, "ACCOUNT_MANAGER");
+  // Создавать проекты могут продажники (ACCOUNT_MANAGER) и финансы; проджекты —
+  // только смотрят. Пока форма открыта только для раздела «Блогеры» (Influence).
+  const canCreate = (seeAll || hasRole(user, "ACCOUNT_MANAGER")) && active.service === "INFLUENCE";
 
-  const [clientOptions, pmOptions, bloggerRows, ownerOptions] = await Promise.all([
+  const [clientOptions, pmOptions, bloggerRows, ownerOptions, nextNumber] = await Promise.all([
     prisma.client.findMany({ where: { entityId: user.entityId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.user.findMany({
       where: { entityId: user.entityId, isActive: true, roles: { some: { role: "PROJECT_MANAGER" } } },
@@ -59,6 +61,7 @@ export default async function ProjectsPage({
           select: { id: true, fullName: true },
         })
       : Promise.resolve([]),
+    nextProjectNumber(user.entityId),
   ]);
 
   // BigInt-прайсы → строки тенге для клиентского компонента. Прайс для
@@ -119,7 +122,8 @@ export default async function ProjectsPage({
           clients={clientOptions}
           bloggers={bloggers}
           owners={ownerOptions}
-          defaultService={active.service}
+          service={active.service}
+          nextNumber={nextNumber}
         />
       )}
 
@@ -132,6 +136,7 @@ export default async function ProjectsPage({
           <table className="w-full text-sm">
             <thead className="bg-gray-50 text-left text-xs uppercase text-gray-500">
               <tr>
+                <th className="px-4 py-2.5 font-medium">№</th>
                 <th className="px-4 py-2.5 font-medium">Проект</th>
                 <th className="px-4 py-2.5 font-medium">Клиент</th>
                 <th className="px-4 py-2.5 text-right font-medium">Цена клиенту</th>
@@ -144,6 +149,7 @@ export default async function ProjectsPage({
             <tbody className="divide-y divide-gray-100">
               {projects.map((p) => (
                 <tr key={p.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-gray-500">{p.number}</td>
                   <td className="px-4 py-3">
                     <Link href={`/projects/${p.id}`} className="font-medium text-indigo-600 hover:underline">
                       {p.name}

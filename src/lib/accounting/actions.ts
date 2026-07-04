@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth/rbac";
 import { hasRole } from "@/lib/auth/permissions";
 import { parseTengeToTiyn } from "@/lib/money";
 import { writeAudit } from "@/lib/audit";
+import { createProjectNumbered } from "@/lib/projects/numbering";
 import { postIncomingAllocation, PostingError } from "./posting";
 
 function revalidateAccounting() {
@@ -105,18 +106,16 @@ export async function createProject(_prev: ProjectState, formData: FormData): Pr
   const ownerId = seeAll ? d.ownerUserId : user.id;
   const owner = ownerId ? await prisma.user.findFirst({ where: { id: ownerId, entityId: user.entityId } }) : null;
 
-  const project = await prisma.project.create({
-    data: {
-      entityId: user.entityId,
-      ledgerId: ledger.id,
-      clientId,
-      name: d.name.trim(),
-      serviceType: d.serviceType,
-      ownerUserId: owner?.id ?? null,
-      departmentId: owner?.departmentId ?? null,
-    },
+  const project = await createProjectNumbered({
+    entityId: user.entityId,
+    ledgerId: ledger.id,
+    clientId,
+    name: d.name.trim(),
+    serviceType: d.serviceType,
+    ownerUserId: owner?.id ?? null,
+    departmentId: owner?.departmentId ?? null,
   });
-  await writeAudit({ entityId: user.entityId, userId: user.id, action: "PROJECT_CREATED", targetType: "Project", targetId: project.id, comment: `Создан проект «${project.name}»` });
+  await writeAudit({ entityId: user.entityId, userId: user.id, action: "PROJECT_CREATED", targetType: "Project", targetId: project.id, comment: `Создан проект № ${project.number} «${project.name}»` });
 
   revalidateAccounting();
   return { ok: true };

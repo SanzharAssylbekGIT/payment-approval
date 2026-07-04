@@ -279,12 +279,15 @@ async function seedDemo(userId: Record<string, string>, ledgerId: Record<string,
     create: { id: "demo_client_yandex", entityId: ENTITY_ID, name: "Яндекс Поиск" },
   });
 
+  // Сквозной номер проекта (система присваивает max+1) — для сида считаем сами.
+  const maxProjectNumber = (await prisma.project.aggregate({ where: { entityId: ENTITY_ID }, _max: { number: true } }))._max.number ?? 0;
   const project = await prisma.project.upsert({
     where: { id: "demo_project_nauryz" },
     update: { name: "Наурыз" },
     create: {
       id: "demo_project_nauryz",
       entityId: ENTITY_ID,
+      number: maxProjectNumber + 1,
       ledgerId: ledgerId[LedgerKind.COST_7366],
       clientId: client.id,
       name: "Наурыз",

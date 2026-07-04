@@ -72,6 +72,7 @@ export async function getProjectsByService(user: AuthenticatedUser, serviceType:
     const receivable = gross > received ? gross - received : 0n;
     return {
       id: p.id,
+      number: p.number,
       name: p.name,
       status: p.status,
       clientName: p.client?.name ?? null,

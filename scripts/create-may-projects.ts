@@ -45,7 +45,8 @@ async function main() {
     const name = `${it.company}_${it.project}`;
     const exists = await prisma.project.findFirst({ where: { entityId: ENTITY, name } });
     if (!exists) {
-      await prisma.project.create({ data: { entityId: ENTITY, ledgerId: cost7366.id, clientId: cid, name, serviceType: serviceOf(it.service) } });
+      const maxNo = (await prisma.project.aggregate({ where: { entityId: ENTITY }, _max: { number: true } }))._max.number ?? 0;
+      await prisma.project.create({ data: { entityId: ENTITY, number: maxNo + 1, ledgerId: cost7366.id, clientId: cid, name, serviceType: serviceOf(it.service) } });
       createdProjects++;
     }
   }

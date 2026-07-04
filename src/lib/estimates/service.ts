@@ -25,6 +25,9 @@ export interface EstimateLineInput {
   title: string;
   amountTiyn: bigint;
   isCategory: boolean; // категория себестоимости без конкретного получателя
+  // Продакшн-резерв по строке (блогер × опция): часть себестоимости, уходит
+  // в продакшн-депозит (Σ резервов строк = depositAmount версии).
+  reserveTiyn?: bigint | null;
   // Сделка (DECISIONS §14): блогер из базы, форматы, прайс на момент сделки.
   bloggerId?: string | null;
   deliverables?: BloggerDeliverable[];
@@ -68,11 +71,13 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
   for (const l of input.lines) {
     if (!l.title.trim()) throw new EstimateError("У каждой строки должно быть название");
     if (l.amountTiyn <= 0n) throw new EstimateError(`Строка «${l.title}»: сумма должна быть больше нуля`);
+    if ((l.reserveTiyn ?? 0n) < 0n) throw new EstimateError(`Строка «${l.title}»: резерв не может быть отрицательным`);
   }
 
   const vat = vatFromGross(gross);
   const net = gross - vat;
-  const cost = input.lines.reduce((s, l) => s + l.amountTiyn, 0n);
+  // Себестоимость = гонорары + продакшн-резервы строк.
+  const cost = input.lines.reduce((s, l) => s + l.amountTiyn + (l.reserveTiyn ?? 0n), 0n);
   const margin = net - cost;
   if (cost > net) throw new EstimateError("Себестоимость больше цены без НДС — проверьте суммы");
   if (input.depositTiyn < 0n || input.depositTiyn > cost) {
@@ -141,6 +146,7 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
           kind: l.isCategory ? "CATEGORY" : "RECIPIENT",
           title: l.title.trim(),
           plannedAmount: l.amountTiyn,
+          reserveAmount: l.reserveTiyn ?? 0n,
           recipientId,
           deliverables: l.deliverables ?? [],
           customDeliverable: l.customDeliverable ?? null,

@@ -243,6 +243,9 @@ model Project {
   clientId    String?
   client      Client?       @relation(fields: [clientId], references: [id])
   name        String // напр. «Наурыз», «Техноблогеры», «8 марта»
+  // Сквозной номер проекта по компании: присваивается системой (max+1),
+  // не зависит от того, кто занёс проект и какая услуга.
+  number      Int
   serviceType ServiceType
   status      ProjectStatus @default(ACTIVE)
 
@@ -265,6 +268,7 @@ model Project {
   incomings       Incoming[]
   transactions    Transaction[]
 
+  @@unique([entityId, number])
   @@index([entityId, clientId])
   @@map("projects")
 }
@@ -410,6 +414,9 @@ model EstimateLine {
   kind          EstimateLineKind @default(RECIPIENT)
   title         String // имя получателя или название категории
   plannedAmount BigInt // план, тиыны (заполненный гонорар)
+  // Продакшн-резерв по этой строке (блогер × опция), тиыны. Часть себестоимости;
+  // сумма резервов всех строк = depositAmount версии (продакшн-депозит).
+  reserveAmount BigInt @default(0)
   recipientId   String?
   recipient     Recipient?       @relation(fields: [recipientId], references: [id])
 

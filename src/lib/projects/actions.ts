@@ -8,6 +8,7 @@ import { hasRole, canSeeEverything } from "@/lib/auth/permissions";
 import { writeAudit } from "@/lib/audit";
 import { parseTengeToTiyn } from "@/lib/money";
 import { EstimateError, saveEstimateVersion, getScopedProject, type EstimateLineInput } from "@/lib/estimates/service";
+import { createProjectNumbered } from "@/lib/projects/numbering";
 import type { BloggerDeliverable } from "@prisma/client";
 
 export type DealState = { error?: string; ok?: boolean };
@@ -18,13 +19,12 @@ const VALID_DELIVERABLES: readonly BloggerDeliverable[] = [
 
 const dealSchema = z.object({
   name: z.string().min(1, "Укажите название проекта"),
-  clientName: z.string().min(1, "Укажите клиента"),
+  clientId: z.string().min(1, "Выберите клиента из списка"),
   serviceType: z.enum(["INFLUENCE", "VIDEO_PHOTO", "EVENT", "SPEC_PROJECT"]),
   projectManagerId: z.string().min(1, "Прикрепите проджект-менеджера"),
   realizationDate: z.string().min(1, "Укажите дату реализации"),
-  completionDate: z.string().min(1, "Укажите дату завершения"),
+  completionDate: z.string().min(1, "Укажите запланированную дату завершения"),
   dealAmount: z.string().min(1, "Укажите сумму сделки"),
-  productionReserve: z.string().optional(),
   ownerUserId: z.string().optional(), // только для «видящих всё»
   linesJson: z.string().min(1, "Добавьте строки себестоимости"),
 });
@@ -34,6 +34,7 @@ interface DealLineRaw {
   bloggerId?: string | null;
   name: string;
   fee: string; // гонорар = себес с налогом, тенге
+  reserve?: string | null; // продакшн-резерв по этой строке (блогер × опция), тенге
   optionName?: string | null; // опция из прайса блогера
   kind?: string | null; // маппинг опции на стандартный формат
   custom?: string | null; // своя опция текстом
@@ -59,13 +60,12 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
 
   const parsed = dealSchema.safeParse({
     name: formData.get("name"),
-    clientName: formData.get("clientName"),
+    clientId: formData.get("clientId"),
     serviceType: formData.get("serviceType"),
     projectManagerId: formData.get("projectManagerId"),
     realizationDate: formData.get("realizationDate"),
     completionDate: formData.get("completionDate"),
     dealAmount: formData.get("dealAmount"),
-    productionReserve: formData.get("productionReserve") || undefined,
     ownerUserId: formData.get("ownerUserId") || undefined,
     linesJson: formData.get("linesJson"),
   });
@@ -79,16 +79,15 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
   if (!pm) return { error: "Проджект-менеджер не найден или не имеет роли проджекта" };
 
   let realizationDate: Date, completionDate: Date;
-  let dealTiyn: bigint, reserveTiyn = 0n;
+  let dealTiyn: bigint;
   try {
     realizationDate = parseDate(d.realizationDate);
     completionDate = parseDate(d.completionDate);
     dealTiyn = parseTengeToTiyn(d.dealAmount);
-    if (d.productionReserve) reserveTiyn = parseTengeToTiyn(d.productionReserve);
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Некорректные данные" };
   }
-  if (completionDate < realizationDate) return { error: "Дата завершения раньше даты реализации" };
+  if (completionDate < realizationDate) return { error: "Запланированная дата завершения раньше даты реализации" };
 
   // Строки себестоимости из JSON формы.
   let raw: DealLineRaw[];
@@ -98,6 +97,7 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
     return { error: "Не удалось разобрать строки себестоимости" };
   }
   const lines: EstimateLineInput[] = [];
+  let reserveTotalTiyn = 0n; // Σ резервов строк → depositAmount (продакшн-депозит)
   for (const r of raw) {
     if (!r.name?.trim() && !r.fee?.trim()) continue;
     let fee: bigint;
@@ -106,6 +106,16 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
     } catch {
       return { error: `Строка «${r.name || "?"}»: некорректный гонорар` };
     }
+    // Продакшн-резерв считается по каждому блогеру и каждой опции отдельно.
+    let reserve = 0n;
+    if (r.reserve?.trim()) {
+      try {
+        reserve = parseTengeToTiyn(r.reserve);
+      } catch {
+        return { error: `Строка «${r.name || "?"}»: некорректный продакшн-резерв` };
+      }
+    }
+    reserveTotalTiyn += reserve;
     let base: bigint | null = null;
     if (r.base) {
       try { base = parseTengeToTiyn(r.base); } catch { base = null; }
@@ -116,6 +126,7 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
     lines.push({
       title: r.name,
       amountTiyn: fee,
+      reserveTiyn: reserve,
       isCategory: !!r.isCategory,
       bloggerId: r.bloggerId || null,
       deliverables: kind ? [kind] : optionText ? ["OTHER"] : [],
@@ -123,44 +134,38 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
       baseFeeTiyn: base,
     });
   }
-  // Продакшн-резерв — часть себестоимости (себес = резерв + гонорары): отдельная
-  // категория + depositAmount (для будущего депозита продакшна).
-  if (reserveTiyn > 0n) {
-    lines.push({ title: "Продакшн-резерв", amountTiyn: reserveTiyn, isCategory: true });
-  }
 
   // Леджер по услуге; клиент — найти или создать.
   const ledgerKind = d.serviceType === "SPEC_PROJECT" ? "SPECPROJECT_0175" : "COST_7366";
   const ledger = await prisma.ledger.findFirst({ where: { entityId: user.entityId, kind: ledgerKind } });
   if (!ledger) return { error: "Не найден леджер для этой услуги" };
 
-  const clientName = d.clientName.trim();
-  const existingClient = await prisma.client.findFirst({ where: { entityId: user.entityId, name: clientName } });
-  const clientId = existingClient?.id ?? (await prisma.client.create({ data: { entityId: user.entityId, name: clientName } })).id;
+  // Клиент — только из справочника (добавление нового — отдельным действием).
+  const client = await prisma.client.findFirst({ where: { id: d.clientId, entityId: user.entityId } });
+  if (!client) return { error: "Клиент не найден — выберите из списка или добавьте нового" };
 
   // Владелец: продажник — всегда сам; «видящие всё» могут выбрать.
   const ownerId = seeAll && d.ownerUserId ? d.ownerUserId : user.id;
   const owner = await prisma.user.findFirst({ where: { id: ownerId, entityId: user.entityId } });
 
-  const project = await prisma.project.create({
-    data: {
-      entityId: user.entityId,
-      ledgerId: ledger.id,
-      clientId,
-      name: d.name.trim(),
-      serviceType: d.serviceType,
-      ownerUserId: owner?.id ?? user.id,
-      projectManagerId: pm.id,
-      departmentId: owner?.departmentId ?? user.departmentId,
-      realizationDate,
-      completionDate,
-    },
+  // Номер проекта присваивает система — сквозной по компании.
+  const project = await createProjectNumbered({
+    entityId: user.entityId,
+    ledgerId: ledger.id,
+    clientId: client.id,
+    name: d.name.trim(),
+    serviceType: d.serviceType,
+    ownerUserId: owner?.id ?? user.id,
+    projectManagerId: pm.id,
+    departmentId: owner?.departmentId ?? user.departmentId,
+    realizationDate,
+    completionDate,
   });
 
   try {
     await saveEstimateVersion(user, project.id, {
       clientPriceGrossTiyn: dealTiyn,
-      depositTiyn: reserveTiyn,
+      depositTiyn: reserveTotalTiyn,
       lines,
       reason: "INITIAL",
       comment: null,
@@ -178,12 +183,43 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
     action: "PROJECT_CREATED",
     targetType: "Project",
     targetId: project.id,
-    comment: `Сделка «${project.name}»: продажник ${owner?.fullName ?? user.fullName}, проджект ${pm.fullName}`,
+    comment: `Проект № ${project.number} «${project.name}»: продажник ${owner?.fullName ?? user.fullName}, проджект ${pm.fullName}`,
   });
 
   revalidatePath("/projects");
   revalidatePath("/accounting/projects");
   return { ok: true };
+}
+
+export type NewClientResult = { client?: { id: string; name: string }; error?: string };
+
+// Добавление клиента в справочник (из окна «Создать проект»). Дубликаты по
+// имени (без учёта регистра) не создаём — возвращаем существующего.
+export async function createClient(name: string): Promise<NewClientResult> {
+  const user = await requireUser();
+  const seeAll = hasRole(user, "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO");
+  if (!hasRole(user, "ACCOUNT_MANAGER") && !seeAll) return { error: "Нет прав добавлять клиентов" };
+
+  const trimmed = name.trim();
+  if (!trimmed) return { error: "Укажите название клиента" };
+  if (trimmed.length > 200) return { error: "Слишком длинное название" };
+
+  const existing = await prisma.client.findFirst({
+    where: { entityId: user.entityId, name: { equals: trimmed, mode: "insensitive" } },
+  });
+  if (existing) return { client: { id: existing.id, name: existing.name } };
+
+  const created = await prisma.client.create({ data: { entityId: user.entityId, name: trimmed } });
+  await writeAudit({
+    entityId: user.entityId,
+    userId: user.id,
+    action: "CLIENT_CREATED",
+    targetType: "Client",
+    targetId: created.id,
+    comment: `Добавлен клиент «${created.name}»`,
+  });
+  revalidatePath("/projects");
+  return { client: { id: created.id, name: created.name } };
 }
 
 // Закрытие проекта (пара продажник/проджект или финансы). Заявки «в полёте»
