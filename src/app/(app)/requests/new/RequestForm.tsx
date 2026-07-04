@@ -266,10 +266,12 @@ export function RequestForm({
         {/* Вид расхода */}
         <div>
           <label className="block text-sm font-medium text-gray-700">Вид расхода *</label>
+          {/* До гидрации выбор отключён: ранний клик не должен молча теряться. */}
           <select
             name="expenseTypeId"
             required
             value={expenseTypeId}
+            disabled={!mounted}
             onChange={(e) => {
               setExpenseTypeId(e.target.value);
               const t = expenseTypes.find((x) => x.id === e.target.value);
