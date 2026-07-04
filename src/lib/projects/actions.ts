@@ -4,10 +4,10 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth/rbac";
-import { hasRole } from "@/lib/auth/permissions";
+import { hasRole, canSeeEverything } from "@/lib/auth/permissions";
 import { writeAudit } from "@/lib/audit";
 import { parseTengeToTiyn } from "@/lib/money";
-import { EstimateError, saveEstimateVersion, type EstimateLineInput } from "@/lib/estimates/service";
+import { EstimateError, saveEstimateVersion, getScopedProject, type EstimateLineInput } from "@/lib/estimates/service";
 import type { BloggerDeliverable } from "@prisma/client";
 
 export type DealState = { error?: string; ok?: boolean };
@@ -184,4 +184,42 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
   revalidatePath("/projects");
   revalidatePath("/accounting/projects");
   return { ok: true };
+}
+
+// Закрытие проекта (пара продажник/проджект или финансы). Заявки «в полёте»
+// блокируют закрытие — сначала доведите оплаты или отмените заявки.
+export async function closeProject(id: string): Promise<void> {
+  const user = await requireUser();
+  const project = await getScopedProject(user, id);
+  if (!project) return;
+  const allowed = canSeeEverything(user) || project.ownerUserId === user.id || project.projectManagerId === user.id;
+  if (!allowed) return;
+
+  const inFlight = await prisma.paymentRequest.count({
+    where: { projectId: id, status: { in: ["PENDING_APPROVAL", "APPROVED", "IN_REGISTER"] } },
+  });
+  if (inFlight > 0) return; // UI дизейблит кнопку; guard — на случай гонки
+
+  const claimed = await prisma.project.updateMany({ where: { id, status: "ACTIVE" }, data: { status: "CLOSED" } });
+  if (claimed.count === 0) return;
+  await writeAudit({ entityId: user.entityId, userId: user.id, action: "PROJECT_CLOSED", targetType: "Project", targetId: id, comment: `Проект «${project.name}» закрыт` });
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${id}`);
+  revalidatePath("/accounting/projects");
+}
+
+// Переоткрытие закрытого проекта.
+export async function reopenProject(id: string): Promise<void> {
+  const user = await requireUser();
+  const project = await getScopedProject(user, id);
+  if (!project) return;
+  const allowed = canSeeEverything(user) || project.ownerUserId === user.id || project.projectManagerId === user.id;
+  if (!allowed) return;
+
+  const claimed = await prisma.project.updateMany({ where: { id, status: "CLOSED" }, data: { status: "ACTIVE" } });
+  if (claimed.count === 0) return;
+  await writeAudit({ entityId: user.entityId, userId: user.id, action: "PROJECT_REOPENED", targetType: "Project", targetId: id, comment: `Проект «${project.name}» переоткрыт` });
+  revalidatePath("/projects");
+  revalidatePath(`/projects/${id}`);
+  revalidatePath("/accounting/projects");
 }

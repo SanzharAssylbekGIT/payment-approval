@@ -19,10 +19,16 @@ function scopeFilter(user: AuthenticatedUser) {
       };
 }
 
-// Список проектов одного вида услуги со статусами оплат и сметой.
-export async function getProjectsByService(user: AuthenticatedUser, serviceType: ServiceType) {
+// Список проектов одного вида услуги со статусами оплат, сметой и деньгами
+// клиента (поступило/дебиторка). showClosed — включать закрытые/отменённые.
+export async function getProjectsByService(user: AuthenticatedUser, serviceType: ServiceType, showClosed = false) {
   const projects = await prisma.project.findMany({
-    where: { entityId: user.entityId, serviceType, ...scopeFilter(user) },
+    where: {
+      entityId: user.entityId,
+      serviceType,
+      ...(showClosed ? {} : { status: "ACTIVE" }),
+      ...scopeFilter(user),
+    },
     include: {
       client: true,
       owner: true,
@@ -31,6 +37,16 @@ export async function getProjectsByService(user: AuthenticatedUser, serviceType:
     },
     orderBy: { createdAt: "desc" },
   });
+
+  // Поступления от клиента по проектам (одним запросом).
+  const incomingSums = await prisma.incoming.groupBy({
+    by: ["projectId"],
+    where: { entityId: user.entityId, projectId: { in: projects.map((p) => p.id) } },
+    _sum: { amount: true },
+  });
+  const receivedByProject = new Map<string, bigint>(
+    incomingSums.filter((g) => g.projectId).map((g) => [g.projectId as string, g._sum.amount ?? 0n]),
+  );
 
   // Фактические выплаты по получателям этих проектов (одним запросом).
   const payouts = await prisma.transaction.groupBy({
@@ -51,6 +67,9 @@ export async function getProjectsByService(user: AuthenticatedUser, serviceType:
 
   return projects.map((p) => {
     const v = p.estimate?.currentVersion;
+    const gross = v?.clientPriceGross ?? 0n;
+    const received = receivedByProject.get(p.id) ?? 0n;
+    const receivable = gross > received ? gross - received : 0n;
     return {
       id: p.id,
       name: p.name,
@@ -58,11 +77,13 @@ export async function getProjectsByService(user: AuthenticatedUser, serviceType:
       clientName: p.client?.name ?? null,
       ownerName: p.owner?.fullName ?? null,
       hasEstimate: !!v,
-      clientPriceGross: v?.clientPriceGross ?? 0n,
+      clientPriceGross: gross,
       costAmount: v?.costAmount ?? 0n,
       recipientsTotal: p.recipients.length,
       recipientsPaid: paidRecipients.get(p.id)?.size ?? 0,
       paidTotal: paidTotal.get(p.id) ?? 0n,
+      receivedTotal: received,
+      receivable, // дебиторка: клиент ещё должен
     };
   });
 }
@@ -88,6 +109,7 @@ export async function getProjectDetailForUser(user: AuthenticatedUser, projectId
         include: { expenseType: true, recipient: true },
         orderBy: { createdAt: "desc" },
       },
+      incomings: { orderBy: { receivedAt: "desc" } },
     },
   });
   if (!project) return null;
@@ -111,6 +133,8 @@ export async function getProjectDetailForUser(user: AuthenticatedUser, projectId
   const balanceAgg = await prisma.transaction.aggregate({ where: { projectId }, _sum: { amount: true } });
   const paidTotal = [...paidByRecipient.values()].reduce((s, v) => s + v, 0n);
   const cost = project.estimate?.currentVersion?.costAmount ?? 0n;
+  const gross = project.estimate?.currentVersion?.clientPriceGross ?? 0n;
+  const receivedTotal = project.incomings.reduce((s, i) => s + i.amount, 0n);
 
   return {
     project,
@@ -118,6 +142,8 @@ export async function getProjectDetailForUser(user: AuthenticatedUser, projectId
     balance: balanceAgg._sum.amount ?? 0n,
     paidCount: recipients.filter((r) => r.isPaid).length,
     paidTotal,
+    receivedTotal,
+    receivable: gross > receivedTotal ? gross - receivedTotal : 0n, // клиент должен
     // Конфликт DECISIONS §1.1: выплачено больше, чем себестоимость новой сметы.
     overpaid: cost > 0n && paidTotal > cost,
   };

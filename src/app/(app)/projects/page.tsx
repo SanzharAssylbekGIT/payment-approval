@@ -17,14 +17,26 @@ const TABS: { key: string; label: string; service: ServiceType }[] = [
 export default async function ProjectsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; arch?: string }>;
 }) {
   const user = await requireRole("ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
   const sp = await searchParams;
   const active = TABS.find((t) => t.key === sp.tab) ?? TABS[0];
+  const showClosed = sp.arch === "1";
 
-  const projects = await getProjectsByService(user, active.service);
+  const projects = await getProjectsByService(user, active.service, showClosed);
   const seeAll = canSeeEverything(user);
+
+  // Итоги по вкладке.
+  const totals = projects.reduce(
+    (t, p) => ({
+      gross: t.gross + p.clientPriceGross,
+      received: t.received + p.receivedTotal,
+      paid: t.paid + p.paidTotal,
+      receivable: t.receivable + p.receivable,
+    }),
+    { gross: 0n, received: 0n, paid: 0n, receivable: 0n },
+  );
   // Заносить сделки могут продажники (ACCOUNT_MANAGER) и финансы; проджекты — только смотрят.
   const canCreate = seeAll || hasRole(user, "ACCOUNT_MANAGER");
 
@@ -71,11 +83,11 @@ export default async function ProjectsPage({
       </div>
 
       {/* Вкладки видов услуг */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {TABS.map((t) => (
           <Link
             key={t.key}
-            href={`/projects?tab=${t.key}`}
+            href={`/projects?tab=${t.key}${showClosed ? "&arch=1" : ""}`}
             className={`rounded-full px-4 py-1.5 text-sm font-medium ${
               t.key === active.key ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"
             }`}
@@ -83,7 +95,23 @@ export default async function ProjectsPage({
             {t.label}
           </Link>
         ))}
+        <Link
+          href={`/projects?tab=${active.key}${showClosed ? "" : "&arch=1"}`}
+          className="ml-auto text-xs text-gray-500 hover:underline"
+        >
+          {showClosed ? "Скрыть закрытые" : "Показать закрытые"}
+        </Link>
       </div>
+
+      {/* Итоги по вкладке */}
+      {projects.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <TotalCard label="Сумма сделок" value={formatTiyn(totals.gross)} />
+          <TotalCard label="Поступило от клиентов" value={formatTiyn(totals.received)} />
+          <TotalCard label="Выплачено" value={formatTiyn(totals.paid)} />
+          <TotalCard label="Дебиторка" value={formatTiyn(totals.receivable)} accent={totals.receivable > 0n ? "text-amber-700" : "text-green-700"} />
+        </div>
+      )}
 
       {canCreate && (
         <NewDealForm
@@ -97,7 +125,7 @@ export default async function ProjectsPage({
 
       {projects.length === 0 ? (
         <div className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-          В разделе «{active.label}» пока нет проектов.
+          В разделе «{active.label}» {showClosed ? "нет проектов" : "нет активных проектов"}.
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-gray-200 bg-white">
@@ -107,7 +135,8 @@ export default async function ProjectsPage({
                 <th className="px-4 py-2.5 font-medium">Проект</th>
                 <th className="px-4 py-2.5 font-medium">Клиент</th>
                 <th className="px-4 py-2.5 text-right font-medium">Цена клиенту</th>
-                <th className="px-4 py-2.5 text-right font-medium">Себестоимость</th>
+                <th className="px-4 py-2.5 text-right font-medium">Поступило</th>
+                <th className="px-4 py-2.5 text-right font-medium">Дебиторка</th>
                 <th className="px-4 py-2.5 font-medium">Получатели</th>
                 <th className="px-4 py-2.5 text-right font-medium">Выплачено</th>
               </tr>
@@ -124,7 +153,21 @@ export default async function ProjectsPage({
                   </td>
                   <td className="px-4 py-3 text-gray-700">{p.clientName ?? "—"}</td>
                   <td className="px-4 py-3 text-right text-gray-900">{p.hasEstimate ? formatTiyn(p.clientPriceGross) : "—"}</td>
-                  <td className="px-4 py-3 text-right text-gray-700">{p.hasEstimate ? formatTiyn(p.costAmount) : "—"}</td>
+                  <td className="px-4 py-3 text-right">
+                    <span className={p.receivedTotal > 0n ? "text-green-700" : "text-gray-400"}>{formatTiyn(p.receivedTotal)}</span>
+                    {p.clientPriceGross > 0n && (
+                      <span className="ml-1 text-xs text-gray-400">
+                        {Number((p.receivedTotal * 100n) / p.clientPriceGross)}%
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    {p.receivable > 0n ? (
+                      <span className="font-medium text-amber-700">{formatTiyn(p.receivable)}</span>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     <span className={p.recipientsTotal > 0 && p.recipientsPaid === p.recipientsTotal ? "text-green-700" : "text-gray-700"}>
                       оплачено {p.recipientsPaid} / {p.recipientsTotal}
@@ -137,6 +180,15 @@ export default async function ProjectsPage({
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+function TotalCard({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white p-4">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className={`mt-1 text-lg font-semibold ${accent ?? "text-gray-900"}`}>{value}</p>
     </div>
   );
 }

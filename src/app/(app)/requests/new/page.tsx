@@ -2,11 +2,43 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth/rbac";
 import { getRequestFormData } from "@/lib/requests/queries";
 import { createRequest } from "@/lib/requests/actions";
-import { RequestForm } from "./RequestForm";
+import { RequestForm, type RequestInitial } from "./RequestForm";
 
-export default async function NewRequestPage() {
+export default async function NewRequestPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ projectId?: string; recipientId?: string }>;
+}) {
   const user = await requireUser();
   const { expenseTypes, projects } = await getRequestFormData(user);
+  const sp = await searchParams;
+
+  // Префилл из карточки проекта («→ Заявка на оплату» у получателя):
+  // проект/получатель выбраны, вид расхода — первый проектный подходящей услуги.
+  let initial: RequestInitial | undefined;
+  if (sp.projectId) {
+    const project = projects.find((p) => p.id === sp.projectId);
+    if (project) {
+      const et = expenseTypes.find((e) => e.isProjectCost && e.serviceType === project.serviceType);
+      const recipient = sp.recipientId && project.recipients.some((r) => r.id === sp.recipientId) ? sp.recipientId : "";
+      initial = {
+        expenseTypeId: et?.id ?? "",
+        projectId: project.id,
+        recipientId: recipient,
+        estimateLineId: "",
+        amount: "",
+        contractAmount: "",
+        paymentPercent: "",
+        paymentTiming: "",
+        serviceRendered: false,
+        deliverables: [],
+        purpose: "",
+        urgency: et?.defaultUrgency ?? "NOT_URGENT",
+        desiredPayDate: "",
+        comment: "",
+      };
+    }
+  }
 
   return (
     <div className="mx-auto max-w-2xl space-y-5">
@@ -22,7 +54,7 @@ export default async function NewRequestPage() {
           Для вашего подразделения не настроены виды расходов. Обратитесь к администратору.
         </div>
       ) : (
-        <RequestForm expenseTypes={expenseTypes} projects={projects} action={createRequest} />
+        <RequestForm expenseTypes={expenseTypes} projects={projects} action={createRequest} initial={initial} />
       )}
     </div>
   );
