@@ -4,7 +4,8 @@ import { PrismaClient } from "@prisma/client";
 import { postIncomingAllocation } from "@/lib/accounting/posting";
 import { markPaid } from "@/lib/treasury/service";
 import { saveEstimateVersion } from "@/lib/estimates/service";
-import { accountBalanceByCode, projectBalance } from "@/lib/accounting/balances";
+import { accountBalanceByCode, projectBalance, ledgerBalancesByKind } from "@/lib/accounting/balances";
+import { transferVpRemainderOnClose, returnReserveOnReopen } from "@/lib/accounting/reserves";
 
 const prisma = new PrismaClient();
 let pass = 0, fail = 0;
@@ -33,7 +34,6 @@ async function main() {
   // чтобы тест не зависел от версии, оставшейся в БД от прошлых запусков.
   await saveEstimateVersion(cfo, "demo_project_nauryz", {
     clientPriceGrossTiyn: 100_000_000n,
-    depositTiyn: 0n,
     lines: [
       { title: "Блогер Айбек", amountTiyn: 35_000_000n, isCategory: false },
       { title: "Блогер Динара", amountTiyn: 25_000_000n, isCategory: false },
@@ -105,7 +105,6 @@ async function main() {
   //    уже разнесённые поступления пере-разносятся ADJUSTMENT-проводками.
   await saveEstimateVersion(cfo, "demo_project_nauryz", {
     clientPriceGrossTiyn: 100_000_000n,
-    depositTiyn: 0n,
     lines: [
       { title: "Блогер Айбек", amountTiyn: 30_000_000n, isCategory: false },
       { title: "Блогер Динара", amountTiyn: 20_000_000n, isCategory: false },
@@ -120,10 +119,49 @@ async function main() {
   const total2 = await prisma.transaction.aggregate({ where: { entityId: E }, _sum: { amount: true } });
   eq(total2._sum.amount ?? 0n, 150_000_000n - 35_000_000n, "пересчёт: общая сумма не изменилась (дельты в ноль)");
 
-  // Возвращаем демо-смету к исходной (v3), чтобы dev-данные не «плыли» от тестов.
+  // 8. Депозит продакшна (DECISIONS §19): ревизия добавляет построчные резервы
+  //    (себестоимость та же: 25+5 и 15+5 = 50M) → депозитные доли уже разнесённых
+  //    оплат отщепляются с котла проекта в копилку ADJUSTMENT-проводками.
   await saveEstimateVersion(cfo, "demo_project_nauryz", {
     clientPriceGrossTiyn: 100_000_000n,
-    depositTiyn: 0n,
+    lines: [
+      { title: "Блогер Айбек", amountTiyn: 25_000_000n, reserveTiyn: 5_000_000n, isCategory: false },
+      { title: "Блогер Динара", amountTiyn: 15_000_000n, reserveTiyn: 5_000_000n, isCategory: false },
+    ],
+    reason: "OTHER",
+    comment: "[TEST] добавлены продакшн-резервы",
+  });
+  let pots = await ledgerBalancesByKind(E);
+  eq(pots.DEPOSIT_INFLUENCE, 15_000_000n, "депозит: копилка = доли резерва (10M + 5M по 50%-оплате)");
+  eq(await projectBalance("demo_project_nauryz"), 40_000_000n - 15_000_000n, "депозит: котёл проекта отдал резерв");
+  eq(await accountBalanceByCode(E, "7366"), 40_000_000n, "депозит: счёт 7366 не изменился (копилка внутри счёта)");
+  const total3 = await prisma.transaction.aggregate({ where: { entityId: E }, _sum: { amount: true } });
+  eq(total3._sum.amount ?? 0n, 150_000_000n - 35_000_000n, "депозит: общая сумма не изменилась");
+
+  // 9. Новое поступление при смете с депозитом: доля резерва отщепляется сразу.
+  const inc3 = await prisma.incoming.create({ data: { entityId: E, amount: 10_000_000n, receivedAt: new Date("2026-06-15"), projectId: "demo_project_nauryz", status: "UNALLOCATED" } });
+  const a3 = await postIncomingAllocation(cfo, inc3.id);
+  eq(a3.depositAmount, 1_000_000n, "10%-оплата: депозитная доля пропорциональна");
+  pots = await ledgerBalancesByKind(E);
+  eq(pots.DEPOSIT_INFLUENCE, 16_000_000n, "10%-оплата: копилка пополнилась");
+  eq(await projectBalance("demo_project_nauryz"), 29_000_000n, "10%-оплата: котёл проекта = +себест. −резерв");
+  eq(await accountBalanceByCode(E, "7366"), 45_000_000n, "10%-оплата: 7366 = котёл + копилка");
+
+  // 10. Выплата продакшн-бюджета платится ИЗ депозита, котёл проекта не трогает.
+  const reqPb = await prisma.paymentRequest.create({
+    data: { entityId: E, number: "PAYTEST-2", expenseTypeId: (await prisma.expenseType.findFirstOrThrow({ where: { code: "PRODUCTION_BUDGET" } })).id, status: "IN_REGISTER", createdById: cfo.id, projectId: "demo_project_nauryz", amount: 4_000_000n, purpose: "[PAYTEST] продакшн-бюджет", urgency: "MEDIUM" },
+  });
+  await markPaid(accountant, reqPb.id, new Date("2026-06-16"));
+  pots = await ledgerBalancesByKind(E);
+  eq(pots.DEPOSIT_INFLUENCE, 12_000_000n, "продакшн-бюджет: отток из копилки");
+  eq(await projectBalance("demo_project_nauryz"), 29_000_000n, "продакшн-бюджет: котёл проекта не тронут");
+  eq(await accountBalanceByCode(E, "7366"), 41_000_000n, "продакшн-бюджет: реальные деньги ушли со счёта 7366");
+
+  // 11. Возврат демо-сметы к исходной (без резервов): депозитные доли вернулись
+  //     в котёл; копилка ушла в минус на уже потраченный продакшн-бюджет —
+  //     «потрачено, но не получено» (это и должно быть видно, CLAUDE.md §5).
+  await saveEstimateVersion(cfo, "demo_project_nauryz", {
+    clientPriceGrossTiyn: 100_000_000n,
     lines: [
       { title: "Блогер Айбек", amountTiyn: 35_000_000n, isCategory: false },
       { title: "Блогер Динара", amountTiyn: 25_000_000n, isCategory: false },
@@ -131,12 +169,55 @@ async function main() {
     reason: "OTHER",
     comment: "[TEST] возврат к исходной",
   });
+  pots = await ledgerBalancesByKind(E);
+  eq(pots.DEPOSIT_INFLUENCE, -4_000_000n, "снятие резервов: копилка в минусе на потраченное");
+  eq(await projectBalance("demo_project_nauryz"), 61_000_000n, "снятие резервов: котёл получил резервы и дельту себестоимости");
+  eq(await accountBalanceByCode(E, "7366"), 57_000_000n, "снятие резервов: 7366 = котёл + копилка");
+  const total4 = await prisma.transaction.aggregate({ where: { entityId: E }, _sum: { amount: true } });
+  eq(total4._sum.amount ?? 0n, 160_000_000n - 39_000_000n, "снятие резервов: сходимость (притоки − оттоки)");
+
+  // 12. Video/Photo: при закрытии проекта неистраченный остаток себестоимости
+  //     уходит в резерв ком. продакшна; при переоткрытии возвращается.
+  const ledger7366 = await prisma.ledger.findFirstOrThrow({ where: { entityId: E, kind: "COST_7366" } });
+  const vp = await prisma.project.create({
+    data: { id: "paytest_vp", entityId: E, ledgerId: ledger7366.id, name: "PAYTEST VP", number: 9999, serviceType: "VIDEO_PHOTO", ownerUserId: cfo.id },
+  });
+  await saveEstimateVersion(cfo, vp.id, {
+    clientPriceGrossTiyn: 23_200_000n, // НДС ровно 3.2M (16/116), без НДС 20M
+    lines: [{ title: "Съёмка (себестоимость)", amountTiyn: 12_000_000n, isCategory: true }],
+    reason: "INITIAL",
+    comment: "[TEST] VP",
+  });
+  const incVp = await prisma.incoming.create({ data: { entityId: E, amount: 23_200_000n, receivedAt: new Date("2026-06-20"), projectId: vp.id, status: "UNALLOCATED" } });
+  await postIncomingAllocation(cfo, incVp.id);
+  eq(await projectBalance(vp.id), 12_000_000n, "VP: котёл проекта = себестоимость");
+
+  const toReserve = await prisma.$transaction((db) => transferVpRemainderOnClose(db, E, { id: vp.id, name: vp.name, serviceType: "VIDEO_PHOTO", ledgerKind: "COST_7366" }));
+  eq(toReserve, 12_000_000n, "VP-закрытие: остаток ушёл в резерв");
+  pots = await ledgerBalancesByKind(E);
+  eq(pots.RESERVE_COMMERCIAL, 12_000_000n, "VP-закрытие: копилка резерва пополнилась");
+  eq(await projectBalance(vp.id), 0n, "VP-закрытие: котёл проекта обнулился");
+
+  const fromReserve = await prisma.$transaction((db) => returnReserveOnReopen(db, E, { id: vp.id, name: vp.name, serviceType: "VIDEO_PHOTO", ledgerKind: "COST_7366" }));
+  eq(fromReserve, 12_000_000n, "VP-переоткрытие: резерв вернулся");
+  pots = await ledgerBalancesByKind(E);
+  eq(pots.RESERVE_COMMERCIAL, 0n, "VP-переоткрытие: копилка резерва пуста");
+  eq(await projectBalance(vp.id), 12_000_000n, "VP-переоткрытие: котёл проекта восстановлен");
 
   // Чистим тестовое
   await prisma.transaction.deleteMany({ where: { entityId: E } });
   await prisma.allocation.deleteMany({});
   await prisma.incoming.deleteMany({ where: { entityId: E } });
-  await prisma.paymentRequest.deleteMany({ where: { number: "PAYTEST-1" } });
+  await prisma.paymentRequest.deleteMany({ where: { number: { in: ["PAYTEST-1", "PAYTEST-2"] } } });
+  // Тестовый VP-проект: смета/строки/получатели → сам проект.
+  const vpEst = await prisma.estimate.findUnique({ where: { projectId: vp.id } });
+  if (vpEst) {
+    await prisma.estimate.update({ where: { id: vpEst.id }, data: { currentVersionId: null } });
+    await prisma.estimateVersion.deleteMany({ where: { estimateId: vpEst.id } }); // строки каскадом
+    await prisma.estimate.delete({ where: { id: vpEst.id } });
+  }
+  await prisma.recipient.deleteMany({ where: { projectId: vp.id } });
+  await prisma.project.delete({ where: { id: vp.id } });
 
   console.log(`\nИТОГО: ${pass} прошло, ${fail} провалено`);
 }

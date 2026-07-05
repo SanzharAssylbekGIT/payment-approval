@@ -196,7 +196,8 @@ model Ledger {
   // (остаток сохраняется под будущие нужды).
   collapsesToMargin Boolean    @default(true)
 
-  projects Project[]
+  projects     Project[]
+  transactions Transaction[] // движения копилки (депозит/резерв), тегированные ledgerId
 
   @@unique([entityId, kind])
   @@map("ledgers")
@@ -762,6 +763,8 @@ model Allocation {
   vatAmount    BigInt
   costAmount   BigInt
   marginAmount BigInt
+  // Часть costAmount, отщеплённая в депозит продакшна (пропорция depositAmount сметы).
+  depositAmount BigInt @default(0)
   // Доля поступления от полной суммы сметы (для частичной оплаты), в б.п. (0..10000).
   ratioBps     Int
 
@@ -791,7 +794,9 @@ enum TransactionKind {
 
 // Атомарное движение денег. amount со знаком: + приток, − отток на данном счёте.
 // Балансы — агрегаты: по счёту (accountId), по проекту (projectId),
-// по депозиту/резерву (через project.ledger). Привязки опциональны по смыслу.
+// по депозиту/резерву (ledgerId). Привязки опциональны по смыслу.
+// ledgerId ≠ null → движение принадлежит копилке (депозит/резерв) и НЕ входит
+// в баланс проекта; projectId на таких движениях — только контекст «откуда/куда».
 model Transaction {
   id          String          @id @default(cuid())
   entityId    String
@@ -814,12 +819,15 @@ model Transaction {
   incoming         Incoming?       @relation(fields: [incomingId], references: [id])
   allocationId     String?
   allocation       Allocation?     @relation(fields: [allocationId], references: [id])
+  ledgerId         String? // копилка (депозит/резерв), которой принадлежит движение
+  ledger           Ledger?         @relation(fields: [ledgerId], references: [id])
 
   createdAt DateTime @default(now())
 
   @@index([accountId])
   @@index([projectId])
   @@index([paymentRequestId])
+  @@index([ledgerId])
   @@index([entityId, occurredAt])
   @@map("transactions")
 }

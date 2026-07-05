@@ -161,10 +161,10 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
                   current
                     ? {
                         clientPriceGross: tiynToInputString(current.clientPriceGross),
-                        deposit: current.depositAmount > 0n ? tiynToInputString(current.depositAmount) : "",
                         lines: current.lines.map((l) => ({
                           title: l.title,
                           amount: tiynToInputString(l.plannedAmount),
+                          reserve: l.reserveAmount > 0n ? tiynToInputString(l.reserveAmount) : "",
                           isCategory: l.kind === "CATEGORY",
                         })),
                       }

@@ -39,7 +39,6 @@ export interface EstimateLineInput {
 
 export interface EstimateInput {
   clientPriceGrossTiyn: bigint;
-  depositTiyn: bigint; // продакшн-бюджет (Influence) — часть себестоимости в депозит
   lines: EstimateLineInput[];
   reason: EstimateChangeReason;
   comment?: string | null;
@@ -74,11 +73,10 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
   const net = gross - vat;
   // Себестоимость = гонорары + продакшн-резервы строк.
   const cost = input.lines.reduce((s, l) => s + l.amountTiyn + (l.reserveTiyn ?? 0n), 0n);
+  // Депозит продакшна версии = Σ построчных резервов (инвариант DECISIONS §14.5).
+  const depositTotal = input.lines.reduce((s, l) => s + (l.reserveTiyn ?? 0n), 0n);
   const margin = net - cost;
   if (cost > net) throw new EstimateError("Себестоимость больше цены без НДС — проверьте суммы");
-  if (input.depositTiyn < 0n || input.depositTiyn > cost) {
-    throw new EstimateError("Продакшн-бюджет (депозит) не может превышать себестоимость");
-  }
 
   const result = await prisma.$transaction(async (db) => {
     // Смета проекта (одна, история — в версиях).
@@ -103,12 +101,21 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
         vatAmount: vat,
         costAmount: cost,
         marginAmount: margin,
-        depositAmount: input.depositTiyn,
+        depositAmount: depositTotal,
         reason: versionNo === 1 ? "INITIAL" : input.reason,
         comment: input.comment ?? null,
         createdById: user.id,
       },
     });
+
+    // Ревизия из простой формы не передаёт сделочные поля строк (опция, прайс) —
+    // наследуем их от текущей версии по совпадению названия строки, если во
+    // входе они не заданы явно. Получатель ищется по имени, поэтому связь
+    // с блогером (Recipient.bloggerId) переживает ревизию сама.
+    const prevLines = estimate.currentVersionId
+      ? await db.estimateLine.findMany({ where: { versionId: estimate.currentVersionId } })
+      : [];
+    const prevByTitle = new Map(prevLines.map((p) => [p.title, p]));
 
     // Строки: для не-категорий находим/создаём получателя проекта по имени
     // (+ связь со справочником блогеров, если строка пришла из базы цен).
@@ -136,6 +143,9 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
           ).id;
         }
       }
+      const prev = prevByTitle.get(l.title.trim());
+      const inherit =
+        prev && !l.bloggerId && (l.deliverables?.length ?? 0) === 0 && !l.customDeliverable ? prev : null;
       await db.estimateLine.create({
         data: {
           versionId: version.id,
@@ -144,9 +154,9 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
           plannedAmount: l.amountTiyn,
           reserveAmount: l.reserveTiyn ?? 0n,
           recipientId,
-          deliverables: l.deliverables ?? [],
-          customDeliverable: l.customDeliverable ?? null,
-          baseFee: l.baseFeeTiyn ?? null,
+          deliverables: l.deliverables?.length ? l.deliverables : (inherit?.deliverables ?? []),
+          customDeliverable: l.customDeliverable ?? inherit?.customDeliverable ?? null,
+          baseFee: l.baseFeeTiyn ?? inherit?.baseFee ?? null,
         },
       });
     }
@@ -178,14 +188,16 @@ export async function saveEstimateVersion(user: AuthenticatedUser, projectId: st
 
 type Db = Prisma.TransactionClient;
 
-// Пересчёт разнесений под новую версию: на каждую дельту НДС/себестоимости —
-// ADJUSTMENT-проводки; Allocation обновляется на новые части (DECISIONS §1.1).
+// Пересчёт разнесений под новую версию: на каждую дельту НДС/себестоимости/
+// депозита — ADJUSTMENT-проводки; Allocation обновляется на новые части
+// (DECISIONS §1.1, §19). Депозитная дельта двигает деньги между котлом проекта
+// и депозитом продакшна (нога копилки тегируется ledgerId).
 async function recalcAllocations(
   db: Db,
   user: AuthenticatedUser,
   projectId: string,
   isSpec: boolean,
-  version: { id: string; version: number; clientPriceGross: bigint; vatAmount: bigint; costAmount: bigint },
+  version: { id: string; version: number; clientPriceGross: bigint; vatAmount: bigint; costAmount: bigint; depositAmount: bigint },
 ) {
   const allocations = await db.allocation.findMany({
     where: { incoming: { projectId } },
@@ -194,10 +206,11 @@ async function recalcAllocations(
   if (allocations.length === 0) return;
 
   const mainCode = isSpec ? "0175" : "6890";
-  const [mainAcc, vatAcc, costAcc] = await Promise.all([
+  const [mainAcc, vatAcc, costAcc, depositLedger] = await Promise.all([
     db.account.findUnique({ where: { entityId_code: { entityId: user.entityId, code: mainCode } } }),
     db.account.findUnique({ where: { entityId_code: { entityId: user.entityId, code: "3098" } } }),
     db.account.findUnique({ where: { entityId_code: { entityId: user.entityId, code: "7366" } } }),
+    db.ledger.findUnique({ where: { entityId_kind: { entityId: user.entityId, kind: "DEPOSIT_INFLUENCE" } } }),
   ]);
   if (!mainAcc || !vatAcc || !costAcc) throw new EstimateError("Не найдены счета для пересчёта");
 
@@ -206,8 +219,10 @@ async function recalcAllocations(
     const newVat = proportion(version.vatAmount, P, version.clientPriceGross);
     const newCost = proportion(version.costAmount, P, version.clientPriceGross);
     const newMargin = P - newVat - newCost;
+    const newDeposit = isSpec ? 0n : proportion(version.depositAmount, P, version.clientPriceGross);
     const dVat = newVat - a.vatAmount;
     const dCost = newCost - a.costAmount;
+    const dDeposit = newDeposit - a.depositAmount;
 
     const base = {
       entityId: user.entityId,
@@ -230,6 +245,12 @@ async function recalcAllocations(
       if (dMain !== 0n) await db.transaction.create({ data: { ...base, accountId: mainAcc.id, amount: dMain } });
       if (dVat !== 0n) await db.transaction.create({ data: { ...base, accountId: vatAcc.id, amount: dVat } });
       if (dCost !== 0n) await db.transaction.create({ data: { ...base, accountId: costAcc.id, amount: dCost, projectId } });
+      // Дельта депозита: котёл проекта ↔ депозит продакшна (обе ноги на 7366).
+      if (dDeposit !== 0n) {
+        if (!depositLedger) throw new EstimateError("Не найден депозит продакшна (леджер DEPOSIT_INFLUENCE)");
+        await db.transaction.create({ data: { ...base, accountId: costAcc.id, amount: -dDeposit, projectId } });
+        await db.transaction.create({ data: { ...base, accountId: costAcc.id, amount: dDeposit, projectId, ledgerId: depositLedger.id } });
+      }
     }
 
     await db.allocation.update({
@@ -238,6 +259,7 @@ async function recalcAllocations(
         vatAmount: newVat,
         costAmount: newCost,
         marginAmount: newMargin,
+        depositAmount: newDeposit,
         ratioBps: Number((P * 10000n) / version.clientPriceGross),
         estimateVersionId: version.id,
       },

@@ -6,6 +6,8 @@
 //   Баланс проекта = Σ amount по projectId (на 7366/0175): «приток от клиента −
 //                    выплаты получателям». «+» клиент заплатил, не выплачено;
 //                    «−» выплачено, клиент ещё не заплатил (DECISIONS §6).
+//   Копилки (депозит/резерв): движения тегируются ledgerId и НЕ входят в баланс
+//   проекта (projectId там — контекст). Баланс копилки = Σ amount по ledgerId.
 
 import { prisma } from "@/lib/db";
 import type { LedgerKind } from "@prisma/client";
@@ -44,9 +46,9 @@ export async function accountBalanceByCode(entityId: string, code: string): Prom
   return agg._sum.amount ?? 0n;
 }
 
-// Баланс одного проекта.
+// Баланс одного проекта (движения копилок не считаем).
 export async function projectBalance(projectId: string): Promise<bigint> {
-  const agg = await prisma.transaction.aggregate({ where: { projectId }, _sum: { amount: true } });
+  const agg = await prisma.transaction.aggregate({ where: { projectId, ledgerId: null }, _sum: { amount: true } });
   return agg._sum.amount ?? 0n;
 }
 
@@ -54,7 +56,7 @@ export async function projectBalance(projectId: string): Promise<bigint> {
 export async function projectBalances(entityId: string): Promise<Map<string, bigint>> {
   const grouped = await prisma.transaction.groupBy({
     by: ["projectId"],
-    where: { entityId, projectId: { not: null } },
+    where: { entityId, projectId: { not: null }, ledgerId: null },
     _sum: { amount: true },
   });
   return new Map(grouped.map((g) => [g.projectId as string, g._sum.amount ?? 0n]));
@@ -70,15 +72,20 @@ export async function recipientPaid(recipientId: string): Promise<bigint> {
   return -(agg._sum.amount ?? 0n);
 }
 
-// Баланс леджера (книги): сумма балансов всех его проектов.
+// Баланс леджера (книги): балансы его проектов + движения, тегированные самим
+// леджером (для депозитов/резервов проектов нет — только тегированные движения).
 export async function ledgerBalance(ledgerId: string): Promise<bigint> {
   const projects = await prisma.project.findMany({ where: { ledgerId }, select: { id: true } });
-  if (projects.length === 0) return 0n;
-  const agg = await prisma.transaction.aggregate({
-    where: { projectId: { in: projects.map((p) => p.id) } },
-    _sum: { amount: true },
-  });
-  return agg._sum.amount ?? 0n;
+  const [byProjects, tagged] = await Promise.all([
+    projects.length > 0
+      ? prisma.transaction.aggregate({
+          where: { projectId: { in: projects.map((p) => p.id) }, ledgerId: null },
+          _sum: { amount: true },
+        })
+      : Promise.resolve({ _sum: { amount: 0n } }),
+    prisma.transaction.aggregate({ where: { ledgerId }, _sum: { amount: true } }),
+  ]);
+  return (byProjects._sum.amount ?? 0n) + (tagged._sum.amount ?? 0n);
 }
 
 // Балансы леджеров по виду (COST_7366 / DEPOSIT_INFLUENCE / RESERVE_COMMERCIAL / SPECPROJECT_0175).

@@ -73,28 +73,35 @@ export async function getProjectDetail(entityId: string, projectId: string) {
     return { id: r.id, name: r.name, planned: line?.plannedAmount ?? 0n, paid, isPaid: paid > 0n };
   });
 
-  const balance = project.transactions.reduce((s, t) => s + t.amount, 0n);
+  // Движения копилок (ledgerId) не входят в баланс проекта — там projectId лишь контекст.
+  const balance = project.transactions.reduce((s, t) => s + (t.ledgerId ? 0n : t.amount), 0n);
   const paidCount = recipients.filter((r) => r.isPaid).length;
 
   return { project, recipients, balance, paidCount, toPayCount: recipients.length - paidCount };
 }
 
-// Депозиты и резервы: баланс + операции (приток/отток). DECISIONS §3, §7.
+// Депозиты и резервы: баланс + операции (приток/отток). DECISIONS §3, §7, §19.
+// Движения копилки тегированы ledgerId (приток из разнесений/закрытий, отток —
+// выплаты продакшн-бюджета); projectId на них — контекст «какой проект».
 export async function getDepositsReserves(entityId: string) {
   const ledgers = await prisma.ledger.findMany({
     where: { entityId, kind: { in: ["DEPOSIT_INFLUENCE", "RESERVE_COMMERCIAL"] } },
   });
   return Promise.all(
     ledgers.map(async (l) => {
-      const projects = await prisma.project.findMany({ where: { ledgerId: l.id }, select: { id: true } });
-      const balance = await ledgerBalance(l.id);
-      const movements = await prisma.transaction.findMany({
-        where: { projectId: { in: projects.map((p) => p.id) } },
-        orderBy: { occurredAt: "desc" },
-        take: 20,
-        include: { project: true },
-      });
-      return { id: l.id, kind: l.kind, name: l.name, balance, movements };
+      const [movements, inflowAgg, outflowAgg] = await Promise.all([
+        prisma.transaction.findMany({
+          where: { ledgerId: l.id },
+          orderBy: { occurredAt: "desc" },
+          take: 30,
+          include: { project: true, paymentRequest: { select: { number: true } } },
+        }),
+        prisma.transaction.aggregate({ where: { ledgerId: l.id, amount: { gt: 0n } }, _sum: { amount: true } }),
+        prisma.transaction.aggregate({ where: { ledgerId: l.id, amount: { lt: 0n } }, _sum: { amount: true } }),
+      ]);
+      const inflow = inflowAgg._sum.amount ?? 0n;
+      const outflow = -(outflowAgg._sum.amount ?? 0n);
+      return { id: l.id, kind: l.kind, name: l.name, balance: inflow - outflow, inflow, outflow, movements };
     }),
   );
 }

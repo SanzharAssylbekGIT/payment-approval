@@ -10,7 +10,6 @@ export type EstimateState = { error?: string; ok?: boolean };
 
 const schema = z.object({
   clientPriceGross: z.string().min(1, "Укажите цену клиенту"),
-  deposit: z.string().optional(),
   reason: z.enum(["INITIAL", "WRONG_ESTIMATE", "PROJECT_REDUCED", "OTHER"]).default("OTHER"),
   comment: z.string().optional(),
 });
@@ -21,24 +20,23 @@ export async function saveEstimate(projectId: string, _prev: EstimateState, form
 
   const parsed = schema.safeParse({
     clientPriceGross: formData.get("clientPriceGross"),
-    deposit: formData.get("deposit") || undefined,
     reason: formData.get("reason") || "OTHER",
     comment: formData.get("comment") || undefined,
   });
   if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Проверьте поля" };
 
   let grossTiyn: bigint;
-  let depositTiyn = 0n;
   try {
     grossTiyn = parseTengeToTiyn(parsed.data.clientPriceGross);
-    if (parsed.data.deposit) depositTiyn = parseTengeToTiyn(parsed.data.deposit);
   } catch {
     return { error: "Некорректная сумма" };
   }
 
-  // Строки: параллельные массивы lineTitle[] / lineAmount[] / lineCategory[] ("1"|"0").
+  // Строки: параллельные массивы lineTitle[] / lineAmount[] / lineReserve[] /
+  // lineCategory[] ("1"|"0"). Резервы построчные — Σ уходит в депозит продакшна.
   const titles = formData.getAll("lineTitle").map(String);
   const amounts = formData.getAll("lineAmount").map(String);
+  const reserves = formData.getAll("lineReserve").map(String);
   const categories = formData.getAll("lineCategory").map(String);
   const lines: EstimateLineInput[] = [];
   for (let i = 0; i < titles.length; i++) {
@@ -49,13 +47,20 @@ export async function saveEstimate(projectId: string, _prev: EstimateState, form
     } catch {
       return { error: `Строка «${titles[i] || i + 1}»: некорректная сумма` };
     }
-    lines.push({ title: titles[i], amountTiyn, isCategory: categories[i] === "1" });
+    let reserveTiyn = 0n;
+    if (reserves[i]?.trim()) {
+      try {
+        reserveTiyn = parseTengeToTiyn(reserves[i]);
+      } catch {
+        return { error: `Строка «${titles[i] || i + 1}»: некорректный продакшн-резерв` };
+      }
+    }
+    lines.push({ title: titles[i], amountTiyn, reserveTiyn, isCategory: categories[i] === "1" });
   }
 
   try {
     await saveEstimateVersion(user, projectId, {
       clientPriceGrossTiyn: grossTiyn,
-      depositTiyn,
       lines,
       reason: parsed.data.reason,
       comment: parsed.data.comment ?? null,

@@ -15,6 +15,7 @@ const REASON_LABELS: Record<string, string> = {
 interface LineDraft {
   title: string;
   amount: string;
+  reserve: string; // продакшн-резерв строки (Influence), Σ → депозит продакшна
   isCategory: boolean;
 }
 
@@ -28,7 +29,9 @@ function fmt(n: number): string {
 }
 
 // Форма сметы: v1 или ревизия (versionNo > 1 → причина обязательна).
-// Расчёт: НДС = 16/116 от цены; себестоимость = сумма строк; маржа = без НДС − себест.
+// Расчёт: НДС = 16/116 от цены; себестоимость = Σ (строка + её резерв);
+// маржа = без НДС − себест. Продакшн-резерв — построчно (Σ = депозит продакшна),
+// ревизия не теряет резервы (DECISIONS §19).
 export function EstimateForm({
   action,
   versionNo,
@@ -38,20 +41,21 @@ export function EstimateForm({
   action: (prev: EstimateState, formData: FormData) => Promise<EstimateState>;
   versionNo: number; // номер СОЗДАВАЕМОЙ версии (1 = первичная)
   isInfluence: boolean;
-  initial?: { clientPriceGross: string; deposit: string; lines: LineDraft[] };
+  initial?: { clientPriceGross: string; lines: LineDraft[] };
 }) {
   const [state, formAction, pending] = useActionState(action, {} as EstimateState);
   const [gross, setGross] = useState(initial?.clientPriceGross ?? "");
   const [lines, setLines] = useState<LineDraft[]>(
-    initial?.lines?.length ? initial.lines : [{ title: "", amount: "", isCategory: false }],
+    initial?.lines?.length ? initial.lines : [{ title: "", amount: "", reserve: "", isCategory: false }],
   );
 
   const totals = useMemo(() => {
     const g = parseTenge(gross);
     const vat = (g * 16) / 116;
     const net = g - vat;
-    const cost = lines.reduce((s, l) => s + parseTenge(l.amount), 0);
-    return { vat, net, cost, margin: net - cost };
+    const reserve = lines.reduce((s, l) => s + parseTenge(l.reserve), 0);
+    const cost = lines.reduce((s, l) => s + parseTenge(l.amount), 0) + reserve;
+    return { vat, net, cost, reserve, margin: net - cost };
   }, [gross, lines]);
 
   function setLine(i: number, patch: Partial<LineDraft>) {
@@ -75,9 +79,9 @@ export function EstimateForm({
         </div>
         {isInfluence && (
           <div>
-            <label className="block text-sm font-medium text-gray-700">Продакшн-бюджет (в депозит), ₸</label>
-            <input name="deposit" inputMode="decimal" placeholder="0" defaultValue={initial?.deposit ?? ""} className={inputCls} />
-            <p className="mt-1 text-xs text-gray-400">Часть себестоимости, уходящая в депозит продакшна.</p>
+            <label className="block text-sm font-medium text-gray-700">Продакшн-резерв (в депозит)</label>
+            <p className="mt-2 rounded-lg bg-gray-50 px-3 py-2 text-sm font-medium text-gray-800">{fmt(totals.reserve)}</p>
+            <p className="mt-1 text-xs text-gray-400">Сумма резервов строк — уходит в депозит продакшна при оплате клиентом.</p>
           </div>
         )}
       </div>
@@ -103,6 +107,19 @@ export function EstimateForm({
                 onChange={(e) => setLine(i, { amount: e.target.value })}
                 className={`${inputCls} mt-0 w-36`}
               />
+              {isInfluence ? (
+                <input
+                  name="lineReserve"
+                  inputMode="decimal"
+                  placeholder="Резерв, ₸"
+                  title="Продакшн-резерв строки (в депозит)"
+                  value={l.reserve}
+                  onChange={(e) => setLine(i, { reserve: e.target.value })}
+                  className={`${inputCls} mt-0 w-32`}
+                />
+              ) : (
+                <input type="hidden" name="lineReserve" value="" />
+              )}
               <input type="hidden" name="lineCategory" value={l.isCategory ? "1" : "0"} />
               <label className="flex items-center gap-1 whitespace-nowrap text-xs text-gray-500">
                 <input
@@ -128,7 +145,7 @@ export function EstimateForm({
         </div>
         <button
           type="button"
-          onClick={() => setLines((ls) => [...ls, { title: "", amount: "", isCategory: false }])}
+          onClick={() => setLines((ls) => [...ls, { title: "", amount: "", reserve: "", isCategory: false }])}
           className="mt-2 text-sm text-indigo-600 hover:underline"
         >
           + Добавить строку
@@ -139,7 +156,11 @@ export function EstimateForm({
       <div className="grid grid-cols-2 gap-3 rounded-lg bg-gray-50 p-4 text-sm sm:grid-cols-4">
         <div><p className="text-xs text-gray-500">НДС (16/116)</p><p className="font-medium">{fmt(totals.vat)}</p></div>
         <div><p className="text-xs text-gray-500">Без НДС</p><p className="font-medium">{fmt(totals.net)}</p></div>
-        <div><p className="text-xs text-gray-500">Себестоимость</p><p className="font-medium">{fmt(totals.cost)}</p></div>
+        <div>
+          <p className="text-xs text-gray-500">Себестоимость</p>
+          <p className="font-medium">{fmt(totals.cost)}</p>
+          {isInfluence && totals.reserve > 0 && <p className="text-xs text-gray-400">в т.ч. резерв {fmt(totals.reserve)}</p>}
+        </div>
         <div>
           <p className="text-xs text-gray-500">Маржа</p>
           <p className={`font-medium ${totals.margin < 0 ? "text-red-600" : "text-green-700"}`}>{fmt(totals.margin)}</p>

@@ -11,6 +11,7 @@ import { EstimateError, saveEstimateVersion, getScopedProject, type EstimateLine
 import { parseEstimateXlsx, type ParsedEstimateRow } from "@/lib/estimates/excel";
 import { createProjectNumbered } from "@/lib/projects/numbering";
 import { projectCode } from "@/lib/projects/code";
+import { transferVpRemainderOnClose, returnReserveOnReopen } from "@/lib/accounting/reserves";
 import type { BloggerDeliverable } from "@prisma/client";
 
 export type DealState = { error?: string; ok?: boolean };
@@ -112,7 +113,6 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
     return { error: "Не удалось разобрать строки себестоимости" };
   }
   const lines: EstimateLineInput[] = [];
-  let reserveTotalTiyn = 0n; // Σ резервов строк → depositAmount (продакшн-депозит)
   for (const r of raw) {
     if (!r.name?.trim() && !r.fee?.trim()) continue;
     let fee: bigint;
@@ -130,7 +130,6 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
         return { error: `Строка «${r.name || "?"}»: некорректный продакшн-резерв` };
       }
     }
-    reserveTotalTiyn += reserve;
     let base: bigint | null = null;
     if (r.base) {
       try { base = parseTengeToTiyn(r.base); } catch { base = null; }
@@ -178,9 +177,9 @@ export async function createDeal(_prev: DealState, formData: FormData): Promise<
   });
 
   try {
+    // depositAmount версии сервис считает сам: Σ построчных резервов.
     await saveEstimateVersion(user, project.id, {
       clientPriceGrossTiyn: dealTiyn,
-      depositTiyn: reserveTotalTiyn,
       lines,
       reason: "INITIAL",
       comment: null,
@@ -319,12 +318,33 @@ export async function closeProject(id: string): Promise<void> {
   });
   if (inFlight > 0) return; // UI дизейблит кнопку; guard — на случай гонки
 
-  const claimed = await prisma.project.updateMany({ where: { id, status: "ACTIVE" }, data: { status: "CLOSED" } });
-  if (claimed.count === 0) return;
-  await writeAudit({ entityId: user.entityId, userId: user.id, action: "PROJECT_CLOSED", targetType: "Project", targetId: id, comment: `Проект «${project.name}» закрыт` });
+  let toReserve = 0n;
+  const claimed = await prisma.$transaction(async (db) => {
+    const c = await db.project.updateMany({ where: { id, status: "ACTIVE" }, data: { status: "CLOSED" } });
+    if (c.count === 0) return false;
+    // Video/Photo (CLAUDE.md §5): неистраченный остаток себестоимости закрытой
+    // съёмки уходит в резерв коммерческого продакшна (копилка на 7366).
+    toReserve = await transferVpRemainderOnClose(db, user.entityId, {
+      id,
+      name: project.name,
+      serviceType: project.serviceType,
+      ledgerKind: project.ledger.kind,
+    });
+    return true;
+  });
+  if (!claimed) return;
+  await writeAudit({
+    entityId: user.entityId,
+    userId: user.id,
+    action: "PROJECT_CLOSED",
+    targetType: "Project",
+    targetId: id,
+    comment: `Проект «${project.name}» закрыт${toReserve > 0n ? `, остаток ${toReserve} тиын → резерв ком. продакшна` : ""}`,
+  });
   revalidatePath("/projects");
   revalidatePath(`/projects/${id}`);
   revalidatePath("/accounting/projects");
+  revalidatePath("/accounting/deposits");
 }
 
 // Переоткрытие закрытого проекта.
@@ -335,10 +355,30 @@ export async function reopenProject(id: string): Promise<void> {
   const allowed = canSeeEverything(user) || project.ownerUserId === user.id || project.projectManagerId === user.id;
   if (!allowed) return;
 
-  const claimed = await prisma.project.updateMany({ where: { id, status: "CLOSED" }, data: { status: "ACTIVE" } });
-  if (claimed.count === 0) return;
-  await writeAudit({ entityId: user.entityId, userId: user.id, action: "PROJECT_REOPENED", targetType: "Project", targetId: id, comment: `Проект «${project.name}» переоткрыт` });
+  let fromReserve = 0n;
+  const claimed = await prisma.$transaction(async (db) => {
+    const c = await db.project.updateMany({ where: { id, status: "CLOSED" }, data: { status: "ACTIVE" } });
+    if (c.count === 0) return false;
+    // Возврат из резерва: что проект отдал при закрытии — обратно в котёл.
+    fromReserve = await returnReserveOnReopen(db, user.entityId, {
+      id,
+      name: project.name,
+      serviceType: project.serviceType,
+      ledgerKind: project.ledger.kind,
+    });
+    return true;
+  });
+  if (!claimed) return;
+  await writeAudit({
+    entityId: user.entityId,
+    userId: user.id,
+    action: "PROJECT_REOPENED",
+    targetType: "Project",
+    targetId: id,
+    comment: `Проект «${project.name}» переоткрыт${fromReserve > 0n ? `, ${fromReserve} тиын возвращено из резерва` : ""}`,
+  });
   revalidatePath("/projects");
   revalidatePath(`/projects/${id}`);
   revalidatePath("/accounting/projects");
+  revalidatePath("/accounting/deposits");
 }

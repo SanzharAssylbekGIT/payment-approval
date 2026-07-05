@@ -19,6 +19,8 @@ function proportion(value: bigint, num: bigint, den: bigint): bigint {
 
 // Проводка выплаты по заявке (вызывается при отметке «оплачено»).
 // Создаёт отток со счёта вида расхода; для проектных — тегирует проект/получателя.
+// Продакшн-бюджет (Influence) платится ИЗ депозита продакшна: движение тегируется
+// леджером-копилкой и не трогает баланс проекта (DECISIONS §19).
 // Возвращает созданную транзакцию. Принимает транзакционный клиент (markPaid
 // оборачивает claim статуса + проводку в один $transaction).
 export async function postRequestPayout(user: AuthenticatedUser, requestId: string, occurredAt: Date, db: Db = prisma) {
@@ -37,6 +39,16 @@ export async function postRequestPayout(user: AuthenticatedUser, requestId: stri
   const existing = await db.transaction.findFirst({ where: { paymentRequestId: req.id, kind: "PAYOUT" } });
   if (existing) return existing;
 
+  // Продакшн-бюджет → отток из депозита продакшна (копилка на 7366).
+  let ledgerId: string | null = null;
+  if (req.expenseType.code === "PRODUCTION_BUDGET") {
+    const dep = await db.ledger.findUnique({
+      where: { entityId_kind: { entityId: user.entityId, kind: "DEPOSIT_INFLUENCE" } },
+    });
+    if (!dep) throw new PostingError("Не найден депозит продакшна (леджер DEPOSIT_INFLUENCE)");
+    ledgerId = dep.id;
+  }
+
   const tx = await db.transaction.create({
     data: {
       entityId: user.entityId,
@@ -48,6 +60,7 @@ export async function postRequestPayout(user: AuthenticatedUser, requestId: stri
       projectId: req.projectId,
       recipientId: req.recipientId,
       paymentRequestId: req.id,
+      ledgerId,
     },
   });
   await writeAudit({ entityId: user.entityId, userId: user.id, action: "PAYOUT_POSTED", targetType: "Transaction", targetId: tx.id, comment: `Проведена выплата по ${req.number}` });
@@ -69,6 +82,7 @@ export interface AllocationResult {
   vatAmount: bigint;
   costAmount: bigint;
   marginAmount: bigint;
+  depositAmount: bigint;
   ratioBps: number;
 }
 
@@ -79,6 +93,9 @@ export interface AllocationResult {
 //   cost = floor(estCost * P / estGross)   → переводится на 7366 (к проекту)
 //   margin = P − vat − cost                 → остаётся (остаток округления тут)
 // Для спецпроекта (0175): на 3098 уходит только НДС, cost+margin остаются на 0175.
+// Депозит (DECISIONS §19): доля продакшн-резерва внутри cost —
+//   deposit = floor(estDeposit * P / estGross) — отщепляется с котла проекта
+//   в депозит продакшна (DEPOSIT_FUNDING, счёт 7366 не меняется).
 export async function postIncomingAllocation(user: AuthenticatedUser, incomingId: string): Promise<AllocationResult> {
   const incoming = await prisma.incoming.findFirst({
     where: { id: incomingId, entityId: user.entityId },
@@ -99,13 +116,17 @@ export async function postIncomingAllocation(user: AuthenticatedUser, incomingId
 
   const isSpec = incoming.project.ledger.kind === "SPECPROJECT_0175";
   const mainCode = isSpec ? "0175" : "6890";
+  // Депозитная доля (продакшн-резерв сметы) — только для обычных услуг.
+  const deposit = isSpec ? 0n : proportion(version.depositAmount, P, version.clientPriceGross);
 
-  const [mainAcc, vatAcc, costAcc] = await Promise.all([
+  const [mainAcc, vatAcc, costAcc, depositLedger] = await Promise.all([
     prisma.account.findUnique({ where: { entityId_code: { entityId: user.entityId, code: mainCode } } }),
     prisma.account.findUnique({ where: { entityId_code: { entityId: user.entityId, code: "3098" } } }),
     prisma.account.findUnique({ where: { entityId_code: { entityId: user.entityId, code: "7366" } } }),
+    prisma.ledger.findUnique({ where: { entityId_kind: { entityId: user.entityId, kind: "DEPOSIT_INFLUENCE" } } }),
   ]);
   if (!mainAcc || !vatAcc || !costAcc) throw new PostingError("Не найдены счета");
+  if (deposit > 0n && !depositLedger) throw new PostingError("Не найден депозит продакшна (леджер DEPOSIT_INFLUENCE)");
 
   // projectId помечаем ТОЛЬКО на движениях по леджеру проекта (баланс проекта =
   // сумма по projectId). Для обычных услуг это себестоимость на 7366. Для
@@ -126,7 +147,7 @@ export async function postIncomingAllocation(user: AuthenticatedUser, incomingId
     if (claimed.count === 0) throw new PostingError("Поступление уже разнесено");
 
     const alloc = await db.allocation.create({
-      data: { incomingId: incoming.id, estimateVersionId: version.id, vatAmount: vat, costAmount: cost, marginAmount: margin, ratioBps },
+      data: { incomingId: incoming.id, estimateVersionId: version.id, vatAmount: vat, costAmount: cost, marginAmount: margin, depositAmount: deposit, ratioBps },
     });
     const base = { entityId: user.entityId, occurredAt: incoming.receivedAt, incomingId: incoming.id, allocationId: alloc.id };
 
@@ -143,10 +164,17 @@ export async function postIncomingAllocation(user: AuthenticatedUser, incomingId
       await db.transaction.create({ data: { ...base, accountId: mainAcc.id, kind: "COST_TRANSFER", amount: -cost, description: "Перевод себестоимости → 7366" } });
       await db.transaction.create({ data: { ...base, accountId: costAcc.id, kind: "COST_TRANSFER", amount: cost, projectId: pid, description: "Себестоимость проекта" } });
     }
+    // Продакшн-резерв: отщепляем депозитную долю с котла проекта в копилку.
+    // Обе ноги на 7366 (счёт не меняется); нога копилки тегирована ledgerId
+    // и не входит в баланс проекта (projectId — контекст «кто пополнил»).
+    if (!isSpec && deposit > 0n && depositLedger) {
+      await db.transaction.create({ data: { ...base, accountId: costAcc.id, kind: "DEPOSIT_FUNDING", amount: -deposit, projectId: pid, description: "Продакшн-резерв → депозит продакшна" } });
+      await db.transaction.create({ data: { ...base, accountId: costAcc.id, kind: "DEPOSIT_FUNDING", amount: deposit, projectId: pid, ledgerId: depositLedger.id, description: `Продакшн-резерв: ${incoming.project!.name}` } });
+    }
     // Маржа остаётся на основном счёте (отдельной транзакции нет — это остаток).
     // Статус ALLOCATED уже проставлен claim-guard'ом в начале транзакции.
   });
 
-  await writeAudit({ entityId: user.entityId, userId: user.id, action: "INCOMING_ALLOCATED", targetType: "Incoming", targetId: incoming.id, comment: `Разнесено: НДС ${vat}, себест. ${cost}, маржа ${margin} (тиын)` });
-  return { vatAmount: vat, costAmount: cost, marginAmount: margin, ratioBps };
+  await writeAudit({ entityId: user.entityId, userId: user.id, action: "INCOMING_ALLOCATED", targetType: "Incoming", targetId: incoming.id, comment: `Разнесено: НДС ${vat}, себест. ${cost}, маржа ${margin}${deposit > 0n ? `, в депозит ${deposit}` : ""} (тиын)` });
+  return { vatAmount: vat, costAmount: cost, marginAmount: margin, depositAmount: deposit, ratioBps };
 }
