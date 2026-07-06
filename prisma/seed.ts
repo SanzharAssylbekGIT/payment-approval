@@ -52,7 +52,7 @@ const USERS: {
   { key: "zhadyra", email: "zhadyra.kasymbek@bravetalents.com", fullName: "Жадыра Касымбек", position: "Главный бухгалтер", dept: "FINANCE", roles: [RoleName.CHIEF_ACCOUNTANT, RoleName.TREASURY_BOARD, RoleName.APPROVER] },
   { key: "symbat", email: "symbat.otesh@bravetalents.com", fullName: "Сымбат Отеш", position: "Бухгалтер", dept: "FINANCE", roles: [RoleName.ACCOUNTANT, RoleName.REQUESTER] },
   { key: "elnura", email: "elnura.ordabaeva@bravetalents.com", fullName: "Эльнура Ордабаева", position: "Бухгалтер", dept: "FINANCE", roles: [RoleName.ACCOUNTANT, RoleName.REQUESTER] },
-  { key: "ainur", email: "ainur.abduali@bravetalents.com", fullName: "Айнур Абдували", position: "Операционный директор", dept: "MANAGEMENT", roles: [RoleName.APPROVER, RoleName.TREASURY_BOARD] },
+  { key: "ainur", email: "ainur.abduvali@bravetalents.com", fullName: "Айнур Абдували", position: "Операционный директор", dept: "MANAGEMENT", roles: [RoleName.APPROVER, RoleName.TREASURY_BOARD] },
   { key: "kalamkas", email: "kalamkas.alimova@bravetalents.com", fullName: "Каламкас Алимова", position: "HR-директор", dept: "OFFICE", roles: [RoleName.APPROVER] },
   { key: "azhar", email: "azhar.rakhat@bravetalents.com", fullName: "Ажар Рахат", position: "Коммерческий директор (рук. продаж)", dept: "COMMERCIAL", roles: [RoleName.APPROVER, RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
   // Продажники ком-блока (DECISIONS §14): заносят проекты/сделки.

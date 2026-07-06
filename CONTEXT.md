@@ -45,7 +45,7 @@ npm run bloggers:import -- "путь/к/файлу.xlsx"   # импорт баз
 | CFO («видит всё», админ) | sanzhar.assylbek@ |
 | Гл. бухгалтер (коллегия) | zhadyra.kasymbek@ |
 | Бухгалтеры | symbat.otesh@, elnura.ordabaeva@ |
-| Опер. директор (коллегия) | ainur.abduali@ |
+| Опер. директор (коллегия) | ainur.abduvali@ |
 | Рук. продаж (ком-директор) | azhar.rakhat@ |
 | **Продажники** (заносят сделки) | meruyert.nurbolganova@, aigerim.amangeldi@, ayaulym.khairullina@, islom.yunusmetov@ |
 | Рук. проджектов (дир. блогеров) | rakhima.turzhanova@ |
