@@ -14,7 +14,11 @@ generator client {
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+  // Рантайм: на serverless (Vercel + Supabase) сюда идёт ПУЛ-строка (порт 6543,
+  // pgbouncer). Миграции ходят напрямую через directUrl (порт 5432).
+  // Локально обе строки одинаковые (docker, localhost:5432).
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ============================================================================
