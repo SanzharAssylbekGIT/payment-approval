@@ -14,6 +14,7 @@ const ENTITY_ID = "entity_bravetalents";
 // --- Департаменты (единица конфиденциальности) ---
 const DEPARTMENTS: { code: string; name: string }[] = [
   { code: "MANAGEMENT", name: "Управление" },
+  { code: "HR", name: "HR" },
   { code: "FINANCE", name: "Бухгалтерия" },
   { code: "BLOGGERS", name: "Блогерский блок" },
   { code: "COMMERCIAL", name: "Коммерческий блок" },
@@ -53,7 +54,8 @@ const USERS: {
   { key: "symbat", email: "symbat.otesh@bravetalents.com", fullName: "Сымбат Отеш", position: "Бухгалтер", dept: "FINANCE", roles: [RoleName.ACCOUNTANT, RoleName.REQUESTER] },
   { key: "elnura", email: "elnura.ordabaeva@bravetalents.com", fullName: "Эльнура Ордабаева", position: "Бухгалтер", dept: "FINANCE", roles: [RoleName.ACCOUNTANT, RoleName.REQUESTER] },
   { key: "ainur", email: "ainur.abduvali@bravetalents.com", fullName: "Айнур Абдували", position: "Операционный директор", dept: "MANAGEMENT", roles: [RoleName.APPROVER, RoleName.TREASURY_BOARD] },
-  { key: "kalamkas", email: "kalamkas.alimova@bravetalents.com", fullName: "Каламкас Алимова", position: "HR-директор", dept: "OFFICE", roles: [RoleName.APPROVER] },
+  { key: "kalamkas", email: "kalamkas.alimova@bravetalents.com", fullName: "Каламкас Алимова", position: "HR-директор", dept: "HR", roles: [RoleName.APPROVER, RoleName.REQUESTER] },
+  { key: "dana", email: "dana.akhmethanova@bravetalents.com", fullName: "Дана Ахметханова", position: "HR", dept: "HR", roles: [RoleName.REQUESTER] },
   { key: "azhar", email: "azhar.rakhat@bravetalents.com", fullName: "Ажар Рахат", position: "Коммерческий директор (рук. продаж)", dept: "COMMERCIAL", roles: [RoleName.APPROVER, RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
   // Продажники ком-блока (DECISIONS §14): заносят проекты/сделки.
   { key: "meruyert", email: "meruyert.nurbolganova@bravetalents.com", fullName: "Меруерт Нурболганова", position: "Менеджер по продажам", dept: "COMMERCIAL", roles: [RoleName.REQUESTER, RoleName.ACCOUNT_MANAGER] },
@@ -73,8 +75,8 @@ const USERS: {
   { key: "aisulu", email: "aisulu.mussabekova@bravetalents.com", fullName: "Айсулу Мусабекова", position: "Продюсер (Event/Spec)", dept: "EVENTS", roles: [RoleName.REQUESTER, RoleName.PROJECT_MANAGER] },
   { key: "tima", email: "tima@bravetalents.com", fullName: "Тима", position: "Продюсер (Event/Spec)", dept: "COMMERCIAL", roles: [RoleName.REQUESTER] },
   { key: "zhaskairat", email: "zhaskairat@bravetalents.com", fullName: "Жаскайрат", position: "Ассистент", dept: "MANAGEMENT", roles: [RoleName.REQUESTER] },
-  { key: "office_manager", email: "office.manager@bravetalents.com", fullName: "Офис-менеджер", position: "Офис-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
-  { key: "it_manager", email: "it.manager@bravetalents.com", fullName: "IT-менеджер", position: "IT-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
+  { key: "office_manager", email: "office@bravetalents.com", fullName: "Офис-менеджер", position: "Офис-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
+  { key: "it_manager", email: "maxim.nazarenko@bravetalents.com", fullName: "Максим Назаренко", position: "IT-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
   { key: "blogger_staff", email: "blogger.staff@bravetalents.com", fullName: "Сотрудник блог-отдела", position: "Менеджер по работе с блогерами", dept: "BLOGGERS", roles: [RoleName.REQUESTER] },
 ];
 
