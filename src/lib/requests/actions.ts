@@ -149,6 +149,7 @@ function buildInput(formData: FormData): { input: RequestInput; serviceRendered:
     recipientId: d.recipientId,
     estimateLineId: d.estimateLineId,
     estimateLineIds,
+    budgetLineId: (formData.get("budgetLineId") as string) || null,
     amountTiyn,
     contractAmountTiyn,
     paymentPercent,

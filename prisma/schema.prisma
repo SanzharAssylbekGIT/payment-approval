@@ -588,6 +588,11 @@ model PaymentRequest {
   estimateLineId String? // ссылка на плановую строку сметы (план-факт)
   estimateLine   EstimateLine? @relation(fields: [estimateLineId], references: [id])
 
+  // Статья бюджета 6890 (DECISIONS §22): обязательна для непроектных видов
+  // со счётом MAIN, кроме ФОТ и дивидендов. Факт бюджета — по каждой статье.
+  budgetLineId String?
+  budgetLine   BudgetLine? @relation(fields: [budgetLineId], references: [id])
+
   amount         BigInt // сумма к оплате, тиыны (для блогера = contractAmount × paymentPercent%)
   purpose        String? // назначение платежа (для блогера формируется из deliverables)
   urgency        Urgency   @default(NOT_URGENT)
@@ -868,6 +873,8 @@ model BudgetLine {
   // считаться по оплаченным заявкам — см. getBudget6890.
   actualAmount  BigInt @default(0)
   matchKeywords String? // ключевые слова статьи для авто-привязки факта
+
+  requests PaymentRequest[] // заявки, поданные на эту статью (факт §22)
 
   @@index([periodId])
   @@map("budget_lines")

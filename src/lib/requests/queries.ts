@@ -63,17 +63,34 @@ export async function getRequestFormData(user: AuthenticatedUser) {
     })),
   }));
 
+  // Статьи бюджета 6890 текущего месяца (для MAIN-видов заявка подаётся на
+  // конкретную статью, DECISIONS §22). Фолбэк — последний помесячный период.
+  const now = new Date();
+  let budgetPeriod = await prisma.budgetPeriod.findFirst({
+    where: { entityId: user.entityId, year: now.getFullYear(), month: now.getMonth() + 1 },
+    include: { lines: { orderBy: { title: "asc" } } },
+  });
+  if (!budgetPeriod) {
+    budgetPeriod = await prisma.budgetPeriod.findFirst({
+      where: { entityId: user.entityId, month: { not: null } },
+      orderBy: [{ year: "desc" }, { month: "desc" }],
+      include: { lines: { orderBy: { title: "asc" } } },
+    });
+  }
+
   return {
     expenseTypes: expenseTypes.map((e) => ({
       id: e.id,
       code: e.code,
       name: e.name,
+      accountKind: e.accountKind,
       isProjectCost: e.isProjectCost,
       requiresEstimate: e.requiresEstimate,
       serviceType: e.serviceType,
       defaultUrgency: e.defaultUrgency,
     })),
     projects: projectsForClient,
+    budgetLines: (budgetPeriod?.lines ?? []).map((l) => ({ id: l.id, title: l.title })),
   };
 }
 
@@ -159,6 +176,7 @@ export async function getRequestForUser(user: AuthenticatedUser, id: string) {
       recipient: true,
       estimateLine: true,
       estimateLines: { include: { estimateLine: true } },
+      budgetLine: true,
       createdBy: true,
       attachments: true,
       approvals: { include: { approver: true, step: true }, orderBy: { decidedAt: "asc" } },

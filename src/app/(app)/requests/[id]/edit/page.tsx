@@ -17,7 +17,7 @@ export default async function EditRequestPage({ params }: { params: Promise<{ id
   const editable = req.createdById === user.id && (req.status === "DRAFT" || req.status === "CLARIFICATION");
   if (!editable) redirect(`/requests/${id}`);
 
-  const { expenseTypes, projects } = await getRequestFormData(user);
+  const { expenseTypes, projects, budgetLines } = await getRequestFormData(user);
 
   const initial: RequestInitial = {
     expenseTypeId: req.expenseTypeId,
@@ -25,6 +25,7 @@ export default async function EditRequestPage({ params }: { params: Promise<{ id
     recipientId: req.recipientId ?? "",
     estimateLineId: req.estimateLineId ?? "",
     estimateLineIds: req.estimateLines.map((l) => l.estimateLineId),
+    budgetLineId: req.budgetLineId ?? "",
     amount: tiynToInput(req.amount),
     contractAmount: tiynToInput(req.contractAmount),
     paymentPercent: req.paymentPercent != null ? String(req.paymentPercent) : "",
@@ -63,6 +64,7 @@ export default async function EditRequestPage({ params }: { params: Promise<{ id
       <RequestForm
         expenseTypes={expenseTypes}
         projects={projects}
+        budgetLines={budgetLines}
         action={updateRequest.bind(null, id)}
         initial={initial}
         existingAttachments={req.attachments.map((a) => ({ id: a.id, kind: a.kind, fileName: a.fileName }))}

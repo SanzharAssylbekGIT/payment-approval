@@ -58,7 +58,14 @@ async function main() {
   await fullApprovePayPath(gulzira, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_dinara", contractAmountTiyn: 25_000_000n, paymentPercent: 100, deliverables: ["VIDEO_POST"], paymentTiming: "PREPAY", urgency: "MEDIUM" }, [rakhima, ainur, zhadyra], cfo, accountant, false);
 
   // 4. Офисный расход 200 000 ₸ — оплачен (для факта в бюджете 6890).
-  await fullApprovePayPath(officeMgr, { expenseTypeId: officeExp, amountTiyn: 20_000_000n, purpose: "Подписка на сервис, июнь", urgency: "NOT_URGENT" }, [kalamkas, zhadyra], cfo, accountant, true);
+  // Статья бюджета обязательна для 6890-видов (§22) — берём первую из
+  // помесячного плана (заводится scripts/import-budget.ts).
+  const budgetLine = await prisma.budgetLine.findFirst({
+    where: { period: { entityId: E, month: { not: null } } },
+    orderBy: { title: "asc" },
+  });
+  if (!budgetLine) throw new Error("Нет помесячного бюджета — сначала npx tsx scripts/import-budget.ts");
+  await fullApprovePayPath(officeMgr, { expenseTypeId: officeExp, amountTiyn: 20_000_000n, purpose: "Подписка на сервис, июнь", urgency: "NOT_URGENT", budgetLineId: budgetLine.id }, [kalamkas, zhadyra], cfo, accountant, true);
 
   // Итоги
   const balance = (await prisma.transaction.aggregate({ where: { projectId: "demo_project_nauryz" }, _sum: { amount: true } }))._sum.amount;

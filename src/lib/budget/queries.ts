@@ -22,22 +22,28 @@ export async function getBudget6890(entityId: string, year: number, month: numbe
       account: { kind: "MAIN" },
       paymentRequestId: { not: null },
     },
-    select: { amount: true, paymentRequest: { select: { expenseTypeId: true } } },
+    select: { amount: true, paymentRequest: { select: { expenseTypeId: true, budgetLineId: true } } },
   });
+  // Факт по СТАТЬЕ (заявка привязана к строке бюджета, §22) — основной путь;
+  // по виду расхода — фолбэк для старых строк без прямых заявок.
+  const factByLine = new Map<string, bigint>();
   const factByType = new Map<string, bigint>();
   for (const p of payouts) {
-    const et = p.paymentRequest?.expenseTypeId;
-    if (!et) continue;
     // Выплаты в журнале отрицательны — факт расходов берём по модулю.
-    factByType.set(et, (factByType.get(et) ?? 0n) + -p.amount);
+    const bl = p.paymentRequest?.budgetLineId;
+    if (bl) factByLine.set(bl, (factByLine.get(bl) ?? 0n) + -p.amount);
+    const et = p.paymentRequest?.expenseTypeId;
+    if (et) factByType.set(et, (factByType.get(et) ?? 0n) + -p.amount);
   }
 
   const lines = (period?.lines ?? [])
     .map((l) => {
       const planned = l.plannedAmount;
-      // Факт: сохранённый actualAmount (помесячный бюджет бэк-офиса, заполняется
-      // сверкой по выписке) имеет приоритет; иначе — расчёт по выплатам за период.
-      const actual = l.actualAmount > 0n ? l.actualAmount : l.expenseTypeId ? factByType.get(l.expenseTypeId) ?? 0n : 0n;
+      // Приоритет факта: сверенный по выписке actualAmount → выплаты по заявкам
+      // этой статьи (budgetLineId) → выплаты по виду расхода (старые строки).
+      const direct = factByLine.get(l.id) ?? 0n;
+      const actual =
+        l.actualAmount > 0n ? l.actualAmount : direct > 0n ? direct : l.expenseTypeId ? (factByType.get(l.expenseTypeId) ?? 0n) : 0n;
       const deviation = planned - actual;
       const pct = planned > 0n ? Number((actual * 100n) / planned) : 0;
       return { id: l.id, title: l.title, planned, actual, deviation, pct };

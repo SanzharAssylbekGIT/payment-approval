@@ -74,7 +74,7 @@ const USERS: {
   { key: "ramzat", email: "ramzat.mahametov@bravetalents.com", fullName: "Рамзат Махаметов", position: "Линейный продюсер", dept: "PRODUCTION", roles: [RoleName.REQUESTER] },
   { key: "aisulu", email: "aisulu.mussabekova@bravetalents.com", fullName: "Айсулу Мусабекова", position: "Продюсер (Event/Spec)", dept: "EVENTS", roles: [RoleName.REQUESTER, RoleName.PROJECT_MANAGER] },
   { key: "tima", email: "tima@bravetalents.com", fullName: "Тима", position: "Продюсер (Event/Spec)", dept: "COMMERCIAL", roles: [RoleName.REQUESTER] },
-  { key: "zhaskairat", email: "zhaskairat@bravetalents.com", fullName: "Жаскайрат", position: "Ассистент", dept: "MANAGEMENT", roles: [RoleName.REQUESTER] },
+  { key: "zhaskairat", email: "zhaskairat.zhangozhin@bravetalents.com", fullName: "Жаскайрат", position: "Ассистент", dept: "MANAGEMENT", roles: [RoleName.REQUESTER] },
   { key: "office_manager", email: "office@bravetalents.com", fullName: "Офис-менеджер", position: "Офис-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
   { key: "it_manager", email: "maxim.nazarenko@bravetalents.com", fullName: "Максим Назаренко", position: "IT-менеджер", dept: "OFFICE", roles: [RoleName.REQUESTER] },
   { key: "blogger_staff", email: "blogger.staff@bravetalents.com", fullName: "Сотрудник блог-отдела", position: "Менеджер по работе с блогерами", dept: "BLOGGERS", roles: [RoleName.REQUESTER] },
@@ -91,6 +91,7 @@ const EXPENSE_TYPES: {
   urgency: Urgency;
   dept: string;
   route: string[]; // ключи пользователей по порядку ступеней
+  active?: boolean; // false — вид отключён (заявки по нему не подаются)
 }[] = [
   // Проектные расходы (себестоимость)
   { code: "BLOGGER_FEE", name: "Гонорары блогеров", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, urgency: Urgency.MEDIUM, dept: "BLOGGERS", route: ["rakhima", "ainur", "zhadyra"] },
@@ -101,7 +102,9 @@ const EXPENSE_TYPES: {
   // Прочие расходы (6890)
   { code: "COMMERCIAL_EXP", name: "Расходы ком-блока", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "COMMERCIAL", route: ["azhar", "zhadyra"] },
   { code: "BLOGGERS_DEPT_EXP", name: "Расходы блог-департамента", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "BLOGGERS", route: ["rakhima", "zhadyra"] },
-  { code: "CREATIVE_EXP", name: "Расходы креатива", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "CREATIVE", route: ["kristiana", "zhadyra"] },
+  { code: "CREATIVE_EXP", name: "Расходы креатива", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "CREATIVE", route: ["kristiana", "zhadyra"], active: false },
+  { code: "ADMIN_EXP", name: "Административные расходы", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "FINANCE", route: ["zhadyra", "ainur", "sanzhar"] },
+  { code: "HR_EXP", name: "Расходы HR", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "HR", route: ["zhadyra", "ainur", "sanzhar"] },
   { code: "OFFICE_EXP", name: "Офисные расходы", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "OFFICE", route: ["kalamkas", "zhadyra"] },
   { code: "SALARY", name: "Зарплата", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.URGENT, dept: "FINANCE", route: ["zhadyra"] },
   { code: "DIVIDENDS", name: "Дивиденды Алмаса", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "MANAGEMENT", route: ["sanzhar", "zhadyra"] },
@@ -175,8 +178,8 @@ async function main() {
   for (const e of EXPENSE_TYPES) {
     const et = await prisma.expenseType.upsert({
       where: { entityId_code: { entityId: ENTITY_ID, code: e.code } },
-      update: { name: e.name, accountKind: e.accountKind, isProjectCost: e.isProjectCost, requiresEstimate: e.requiresEstimate, serviceType: e.serviceType ?? undefined, defaultUrgency: e.urgency, departmentId: deptId[e.dept] },
-      create: { entityId: ENTITY_ID, code: e.code, name: e.name, accountKind: e.accountKind, isProjectCost: e.isProjectCost, requiresEstimate: e.requiresEstimate, serviceType: e.serviceType ?? undefined, defaultUrgency: e.urgency, departmentId: deptId[e.dept] },
+      update: { name: e.name, accountKind: e.accountKind, isProjectCost: e.isProjectCost, requiresEstimate: e.requiresEstimate, serviceType: e.serviceType ?? undefined, defaultUrgency: e.urgency, departmentId: deptId[e.dept], isActive: e.active ?? true },
+      create: { entityId: ENTITY_ID, code: e.code, name: e.name, accountKind: e.accountKind, isProjectCost: e.isProjectCost, requiresEstimate: e.requiresEstimate, serviceType: e.serviceType ?? undefined, defaultUrgency: e.urgency, departmentId: deptId[e.dept], isActive: e.active ?? true },
     });
 
     const route = await prisma.approvalRoute.upsert({

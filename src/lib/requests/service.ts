@@ -43,6 +43,8 @@ export interface RequestInput {
   urgency: Urgency;
   desiredPayDate?: Date | null;
   comment?: string | null;
+  // Статья бюджета 6890 (обязательна для MAIN-видов, кроме ФОТ/дивидендов).
+  budgetLineId?: string | null;
 }
 
 // Итог расчёта полей заявки: сумма к оплате + назначение + нормализованные
@@ -326,6 +328,22 @@ function projectData(expenseType: ExpenseType, input: RequestInput) {
 }
 
 // Создание заявки (Черновик) с проверкой прав и проектной целостности.
+// Бюджет 6890 (DECISIONS §22): непроектные виды со счётом MAIN подаются на
+// конкретную статью бюджета — факт считается по каждой статье. Исключения:
+// ФОТ и дивиденды — вне помесячного бюджета бэк-офиса.
+const BUDGET_EXEMPT_CODES = new Set(["SALARY", "DIVIDENDS"]);
+
+async function resolveBudgetLine(user: AuthenticatedUser, expenseType: ExpenseType, input: RequestInput): Promise<string | null> {
+  const needsLine = expenseType.accountKind === "MAIN" && !expenseType.isProjectCost && !BUDGET_EXEMPT_CODES.has(expenseType.code);
+  if (!needsLine) return null;
+  if (!input.budgetLineId) throw new RequestError("Выберите статью бюджета");
+  const line = await prisma.budgetLine.findFirst({
+    where: { id: input.budgetLineId, period: { entityId: user.entityId } },
+  });
+  if (!line) throw new RequestError("Статья бюджета не найдена");
+  return line.id;
+}
+
 export async function createRequestForUser(user: AuthenticatedUser, input: RequestInput) {
   const expenseType = await prisma.expenseType.findFirst({
     where: { id: input.expenseTypeId, entityId: user.entityId, isActive: true },
@@ -340,6 +358,7 @@ export async function createRequestForUser(user: AuthenticatedUser, input: Reque
     await assertBloggerPercentLimit(user, expenseType, input, fields.paymentPercent);
     await assertLinePercentLimit(user, expenseType, input, fields.paymentPercent);
   }
+  const budgetLineId = await resolveBudgetLine(user, expenseType, input);
 
   const data = {
     entityId: user.entityId,
@@ -347,6 +366,7 @@ export async function createRequestForUser(user: AuthenticatedUser, input: Reque
     status: "DRAFT" as const,
     createdById: user.id,
     ...projectData(expenseType, input),
+    budgetLineId,
     amount: fields.amount,
     purpose: fields.purpose,
     urgency: input.urgency,
@@ -401,12 +421,14 @@ export async function updateRequestForUser(user: AuthenticatedUser, id: string, 
     await assertBloggerPercentLimit(user, expenseType, input, fields.paymentPercent, id);
     await assertLinePercentLimit(user, expenseType, input, fields.paymentPercent, id);
   }
+  const budgetLineId = await resolveBudgetLine(user, expenseType, input);
 
   const updated = await prisma.paymentRequest.update({
     where: { id },
     data: {
       expenseTypeId: expenseType.id,
       ...projectData(expenseType, input),
+      budgetLineId,
       amount: fields.amount,
       purpose: fields.purpose,
       urgency: input.urgency,

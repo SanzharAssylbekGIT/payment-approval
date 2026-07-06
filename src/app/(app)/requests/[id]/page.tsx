@@ -114,6 +114,7 @@ export default async function RequestDetailPage({
           />
         )}
         {req.recipient && <Field label={isBloggerLike ? "Блогер" : "Получатель"} value={req.recipient.name} />}
+        {req.budgetLine && <Field label="Статья бюджета" value={req.budgetLine.title} />}
         {req.estimateLine && <Field label="Строка сметы" value={`${req.estimateLine.title} (план ${formatTiyn(req.estimateLine.plannedAmount)})`} />}
         {req.estimateLines.length > 1 && (
           <div className="col-span-2">

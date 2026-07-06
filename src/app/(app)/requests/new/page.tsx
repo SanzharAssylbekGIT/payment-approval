@@ -10,7 +10,7 @@ export default async function NewRequestPage({
   searchParams: Promise<{ projectId?: string; recipientId?: string }>;
 }) {
   const user = await requireUser();
-  const { expenseTypes, projects } = await getRequestFormData(user);
+  const { expenseTypes, projects, budgetLines } = await getRequestFormData(user);
   const sp = await searchParams;
 
   // Префилл из карточки проекта («→ Заявка на оплату» у получателя):
@@ -27,6 +27,7 @@ export default async function NewRequestPage({
         recipientId: recipient,
         estimateLineId: "",
         estimateLineIds: [],
+        budgetLineId: "",
         amount: "",
         contractAmount: "",
         paymentPercent: "",
@@ -55,7 +56,7 @@ export default async function NewRequestPage({
           Для вашего подразделения не настроены виды расходов. Обратитесь к администратору.
         </div>
       ) : (
-        <RequestForm expenseTypes={expenseTypes} projects={projects} action={createRequest} initial={initial} />
+        <RequestForm expenseTypes={expenseTypes} projects={projects} budgetLines={budgetLines} action={createRequest} initial={initial} />
       )}
     </div>
   );

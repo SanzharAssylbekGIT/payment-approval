@@ -12,11 +12,15 @@ interface ExpenseTypeOpt {
   id: string;
   code: string;
   name: string;
+  accountKind: string;
   isProjectCost: boolean;
   requiresEstimate: boolean;
   serviceType: ServiceType | null;
   defaultUrgency: Urgency;
 }
+
+// Виды с 6890, подающиеся БЕЗ статьи бюджета (вне помесячного бюджета бэк-офиса).
+const BUDGET_EXEMPT_CODES = ["SALARY", "DIVIDENDS"];
 interface ProjectOpt {
   id: string;
   name: string;
@@ -33,6 +37,7 @@ export interface RequestInitial {
   recipientId: string;
   estimateLineId: string;
   estimateLineIds: string[]; // мультивыбор позиций сметы (продакшн)
+  budgetLineId: string; // статья бюджета 6890 (для MAIN-видов)
   amount: string;
   contractAmount: string;
   paymentPercent: string;
@@ -60,12 +65,14 @@ function formatTengeInput(tenge: number): string {
 export function RequestForm({
   expenseTypes,
   projects,
+  budgetLines,
   action,
   initial,
   existingAttachments,
 }: {
   expenseTypes: ExpenseTypeOpt[];
   projects: ProjectOpt[];
+  budgetLines: { id: string; title: string }[];
   action: (prev: CreateState, formData: FormData) => Promise<CreateState>;
   initial?: RequestInitial;
   existingAttachments?: { id: string; kind: AttachmentKind; fileName: string }[];
@@ -80,6 +87,7 @@ export function RequestForm({
   const [recipientId, setRecipientId] = useState(initial?.recipientId ?? "");
   const [estimateLineId, setEstimateLineId] = useState(initial?.estimateLineId ?? "");
   const [lineIds, setLineIds] = useState<string[]>(initial?.estimateLineIds ?? []);
+  const [budgetLineId, setBudgetLineId] = useState(initial?.budgetLineId ?? "");
   const [amount, setAmount] = useState(initial?.amount ?? "");
   const [purpose, setPurpose] = useState(initial?.purpose ?? "");
   const [urgency, setUrgency] = useState<Urgency>(initial?.urgency ?? "NOT_URGENT");
@@ -97,6 +105,9 @@ export function RequestForm({
   const selectedType = expenseTypes.find((e) => e.id === expenseTypeId);
   const isProjectCost = selectedType?.isProjectCost ?? false;
   const isBlogger = selectedType?.code === BLOGGER_FEE_CODE;
+  // Расход с 6890 (кроме ФОТ/дивидендов) подаётся на конкретную статью бюджета (§22).
+  const needsBudgetLine =
+    !!selectedType && selectedType.accountKind === "MAIN" && !selectedType.isProjectCost && !BUDGET_EXEMPT_CODES.includes(selectedType.code);
   const visibleProjects = useMemo(
     () => projects.filter((p) => !selectedType?.serviceType || p.serviceType === selectedType.serviceType),
     [projects, selectedType],
@@ -283,6 +294,7 @@ export function RequestForm({
               setRecipientId("");
               setEstimateLineId("");
               setLineIds([]);
+              setBudgetLineId("");
             }}
             className={inputCls}
           >
@@ -294,6 +306,32 @@ export function RequestForm({
             ))}
           </select>
         </div>
+
+        {/* Статья бюджета 6890 (§22): факт бюджета считается по каждой статье */}
+        {needsBudgetLine && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700">Статья бюджета *</label>
+            <select
+              name="budgetLineId"
+              required
+              value={budgetLineId}
+              onChange={(e) => setBudgetLineId(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">— выберите статью —</option>
+              {budgetLines.map((l) => (
+                <option key={l.id} value={l.id}>
+                  {l.title}
+                </option>
+              ))}
+            </select>
+            {budgetLines.length === 0 ? (
+              <p className="mt-1 text-xs text-amber-600">Бюджет месяца не заведён — обратитесь в финансовый блок.</p>
+            ) : (
+              <p className="mt-1 text-xs text-gray-400">Оплата ляжет в факт этой статьи месячного бюджета.</p>
+            )}
+          </div>
+        )}
 
         {/* Проект (фильтруется по услуге вида расхода) */}
         {isProjectCost && (
