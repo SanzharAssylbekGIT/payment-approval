@@ -37,6 +37,7 @@ async function main() {
   const staff = await u("blogger.staff@bravetalents.com");
   const rakhima = await u("rakhima.turzhanova@bravetalents.com");
   const ainur = await u("ainur.abduvali@bravetalents.com");
+  const zhadyra = await u("zhadyra.kasymbek@bravetalents.com");
   const cfo = await u("sanzhar.assylbek@bravetalents.com");
   const accountant = await u("symbat.otesh@bravetalents.com");
   const officeMgr = await u("office.manager@bravetalents.com");
@@ -50,13 +51,13 @@ async function main() {
   const officeExp = await etId("OFFICE_EXP");
 
   // 2. Гонорар Айбеку 350 000 ₸ (договор 350k × 100%) — полностью проведён (оплачен).
-  await fullApprovePayPath(staff, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_aibek", contractAmountTiyn: 35_000_000n, paymentPercent: 100, deliverables: ["STORY_SERIES"], paymentTiming: "POSTPAY", urgency: "MEDIUM" }, [rakhima, ainur], cfo, accountant, true);
+  await fullApprovePayPath(staff, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_aibek", contractAmountTiyn: 35_000_000n, paymentPercent: 100, deliverables: ["STORY_SERIES"], paymentTiming: "POSTPAY", urgency: "MEDIUM" }, [rakhima, ainur, zhadyra], cfo, accountant, true);
 
   // 3. Гонорар Динаре 250 000 ₸ (договор 250k × 100%) — в реестре, ещё не оплачен.
-  await fullApprovePayPath(staff, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_dinara", contractAmountTiyn: 25_000_000n, paymentPercent: 100, deliverables: ["VIDEO_POST"], paymentTiming: "PREPAY", urgency: "MEDIUM" }, [rakhima, ainur], cfo, accountant, false);
+  await fullApprovePayPath(staff, { expenseTypeId: bloggerFee, projectId: "demo_project_nauryz", recipientId: "demo_recipient_dinara", contractAmountTiyn: 25_000_000n, paymentPercent: 100, deliverables: ["VIDEO_POST"], paymentTiming: "PREPAY", urgency: "MEDIUM" }, [rakhima, ainur, zhadyra], cfo, accountant, false);
 
   // 4. Офисный расход 200 000 ₸ — оплачен (для факта в бюджете 6890).
-  await fullApprovePayPath(officeMgr, { expenseTypeId: officeExp, amountTiyn: 20_000_000n, purpose: "Подписка на сервис, июнь", urgency: "NOT_URGENT" }, [kalamkas], cfo, accountant, true);
+  await fullApprovePayPath(officeMgr, { expenseTypeId: officeExp, amountTiyn: 20_000_000n, purpose: "Подписка на сервис, июнь", urgency: "NOT_URGENT" }, [kalamkas, zhadyra], cfo, accountant, true);
 
   // Итоги
   const balance = (await prisma.transaction.aggregate({ where: { projectId: "demo_project_nauryz" }, _sum: { amount: true } }))._sum.amount;

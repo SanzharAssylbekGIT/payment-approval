@@ -91,16 +91,16 @@ const EXPENSE_TYPES: {
   route: string[]; // ключи пользователей по порядку ступеней
 }[] = [
   // Проектные расходы (себестоимость)
-  { code: "BLOGGER_FEE", name: "Гонорары блогеров", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, urgency: Urgency.MEDIUM, dept: "BLOGGERS", route: ["rakhima", "ainur"] },
-  { code: "PRODUCTION_BUDGET", name: "Продакшн-бюджет (Influence)", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, urgency: Urgency.MEDIUM, dept: "PRODUCTION", route: ["ainur"] },
-  { code: "VIDEO_PHOTO", name: "Video/Photo production", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.VIDEO_PHOTO, urgency: Urgency.MEDIUM, dept: "PRODUCTION", route: ["ainur"] },
-  { code: "EVENT", name: "Event", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.EVENT, urgency: Urgency.MEDIUM, dept: "EVENTS", route: ["sanzhar"] },
-  { code: "SPEC_PROJECT", name: "Spec project", accountKind: AccountKind.SPECPROJECT, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.SPEC_PROJECT, urgency: Urgency.MEDIUM, dept: "EVENTS", route: ["sanzhar"] },
+  { code: "BLOGGER_FEE", name: "Гонорары блогеров", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, urgency: Urgency.MEDIUM, dept: "BLOGGERS", route: ["rakhima", "ainur", "zhadyra"] },
+  { code: "PRODUCTION_BUDGET", name: "Продакшн-бюджет (Influence)", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.INFLUENCE, urgency: Urgency.MEDIUM, dept: "PRODUCTION", route: ["ainur", "zhadyra"] },
+  { code: "VIDEO_PHOTO", name: "Video/Photo production", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.VIDEO_PHOTO, urgency: Urgency.MEDIUM, dept: "PRODUCTION", route: ["ainur", "zhadyra"] },
+  { code: "EVENT", name: "Event", accountKind: AccountKind.PROJECT_COST, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.EVENT, urgency: Urgency.MEDIUM, dept: "EVENTS", route: ["sanzhar", "zhadyra"] },
+  { code: "SPEC_PROJECT", name: "Spec project", accountKind: AccountKind.SPECPROJECT, isProjectCost: true, requiresEstimate: true, serviceType: ServiceType.SPEC_PROJECT, urgency: Urgency.MEDIUM, dept: "EVENTS", route: ["sanzhar", "zhadyra"] },
   // Прочие расходы (6890)
-  { code: "COMMERCIAL_EXP", name: "Расходы ком-блока", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "COMMERCIAL", route: ["azhar"] },
-  { code: "BLOGGERS_DEPT_EXP", name: "Расходы блог-департамента", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "BLOGGERS", route: ["rakhima"] },
-  { code: "CREATIVE_EXP", name: "Расходы креатива", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "CREATIVE", route: ["kristiana"] },
-  { code: "OFFICE_EXP", name: "Офисные расходы", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "OFFICE", route: ["kalamkas"] },
+  { code: "COMMERCIAL_EXP", name: "Расходы ком-блока", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "COMMERCIAL", route: ["azhar", "zhadyra"] },
+  { code: "BLOGGERS_DEPT_EXP", name: "Расходы блог-департамента", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "BLOGGERS", route: ["rakhima", "zhadyra"] },
+  { code: "CREATIVE_EXP", name: "Расходы креатива", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "CREATIVE", route: ["kristiana", "zhadyra"] },
+  { code: "OFFICE_EXP", name: "Офисные расходы", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "OFFICE", route: ["kalamkas", "zhadyra"] },
   { code: "SALARY", name: "Зарплата", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.URGENT, dept: "FINANCE", route: ["zhadyra"] },
   { code: "DIVIDENDS", name: "Дивиденды Алмаса", accountKind: AccountKind.MAIN, isProjectCost: false, requiresEstimate: false, serviceType: null, urgency: Urgency.NOT_URGENT, dept: "MANAGEMENT", route: ["sanzhar", "zhadyra"] },
 ];
