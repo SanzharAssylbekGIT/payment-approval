@@ -211,7 +211,6 @@ async function main() {
   // --- Демо-данные для проверки прав (CLAUDE.md §14) ---
   await seedBloggers();
   await seedDemo(userId, ledgerId);
-  await seedBudget();
 
   console.log("Готово. Пользователей:", USERS.length, "| Видов расходов:", EXPENSE_TYPES.length);
 }
@@ -255,26 +254,8 @@ async function seedBloggers() {
   }
 }
 
-// Бюджет 6890 на 2026 (план по статьям). Факт считается по оплаченным заявкам.
-async function seedBudget() {
-  const year = 2026;
-  let period = await prisma.budgetPeriod.findFirst({ where: { entityId: ENTITY_ID, year, month: null } });
-  if (!period) period = await prisma.budgetPeriod.create({ data: { entityId: ENTITY_ID, year } });
-
-  const PLAN: { code: string; title: string; amount: bigint }[] = [
-    { code: "SALARY", title: "Зарплата", amount: 12_000_000_000n }, // 120 000 000 ₸
-    { code: "OFFICE_EXP", title: "Офисные расходы", amount: 1_200_000_000n }, // 12 000 000 ₸
-    { code: "COMMERCIAL_EXP", title: "Расходы ком-блока", amount: 500_000_000n }, // 5 000 000 ₸
-    { code: "BLOGGERS_DEPT_EXP", title: "Расходы блог-департамента", amount: 400_000_000n }, // 4 000 000 ₸
-    { code: "CREATIVE_EXP", title: "Расходы креатива", amount: 300_000_000n }, // 3 000 000 ₸
-  ];
-
-  await prisma.budgetLine.deleteMany({ where: { periodId: period.id } });
-  for (const p of PLAN) {
-    const et = await prisma.expenseType.findUnique({ where: { entityId_code: { entityId: ENTITY_ID, code: p.code } } });
-    await prisma.budgetLine.create({ data: { periodId: period.id, expenseTypeId: et?.id, title: p.title, plannedAmount: p.amount } });
-  }
-}
+// Бюджет 6890 ведётся реальными помесячными планами CFO (§22):
+// npx tsx scripts/import-budget.ts — демо-план сид больше не создаёт.
 
 // Небольшой демо-набор: 1 клиент, 1 проект Influence «Наурыз», смета + 2 получателя,
 // одна черновая заявка на гонорар. Все суммы в тиынах.
