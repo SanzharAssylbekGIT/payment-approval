@@ -22,7 +22,7 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { href: "/dashboard", label: "Главная", roles: [] },
-  { href: "/projects", label: "Проекты", roles: ["ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT"] },
+  { href: "/projects", label: "Проекты", roles: ["ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURY_BOARD", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT"] },
   { href: "/requests", label: "Мои заявки", roles: ["REQUESTER", "APPROVER", "ACCOUNT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT"] },
   { href: "/approvals", label: "Согласование", roles: ["APPROVER", "CHIEF_ACCOUNTANT", "TREASURER_CFO"] },
   { href: "/treasury", label: "Казначейство", roles: ["TREASURER_CFO", "TREASURY_BOARD"] },

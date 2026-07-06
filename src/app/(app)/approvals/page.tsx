@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/rbac";
 import { getApprovalQueue } from "@/lib/requests/queries";
 import { formatTiyn } from "@/lib/money";
 import { UrgencyBadge } from "@/components/StatusBadge";
+import { ProjectPeek } from "@/components/ProjectPeek";
 
 export default async function ApprovalsPage() {
   const user = await requireRole("APPROVER", "CHIEF_ACCOUNTANT", "TREASURER_CFO");
@@ -39,7 +40,14 @@ export default async function ApprovalsPage() {
                   <td className="px-4 py-3 text-gray-700">{r.createdBy.fullName}</td>
                   <td className="px-4 py-3 text-gray-700">
                     {r.expenseType.name}
-                    {r.project ? ` · ${r.project.name}` : ""}
+                    {r.project && (
+                      <>
+                        {" · "}
+                        <ProjectPeek projectId={r.project.id} className="inline text-left text-gray-700 hover:text-indigo-600 hover:underline">
+                          {r.project.name}
+                        </ProjectPeek>
+                      </>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-right font-medium text-gray-900">{formatTiyn(r.amount)}</td>
                   <td className="px-4 py-3">

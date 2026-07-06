@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireRole } from "@/lib/auth/rbac";
+import { requireRole, canSeeEverything, hasRole } from "@/lib/auth/rbac";
 import { getProjectDetailForUser } from "@/lib/projects/queries";
 import { saveEstimate } from "@/lib/estimates/actions";
 import { closeProject, reopenProject } from "@/lib/projects/actions";
@@ -20,7 +20,7 @@ const REASON_LABELS: Record<string, string> = {
 
 export default async function ProjectDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const user = await requireRole("ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const user = await requireRole("ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURY_BOARD", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
   const data = await getProjectDetailForUser(user, id);
   if (!data) notFound();
 
@@ -32,6 +32,10 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
   const cost = current?.costAmount ?? 0n;
   // Заявки «в полёте» блокируют закрытие проекта.
   const inFlight = project.paymentRequests.filter((r) => ["PENDING_APPROVAL", "APPROVED", "IN_REGISTER"].includes(r.status)).length;
+  // Коллегия (Айнур) смотрит проекты, но не управляет ими: кнопки закрытия и
+  // форму сметы показываем только тем, кого пропустят server actions.
+  const canManage = canSeeEverything(user) || project.ownerUserId === user.id || project.projectManagerId === user.id;
+  const canEditEstimate = hasRole(user, "ACCOUNT_MANAGER", "ACCOUNTANT", "CHIEF_ACCOUNTANT", "TREASURER_CFO");
 
   return (
     <div className="mx-auto max-w-4xl space-y-6">
@@ -47,7 +51,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             <span className="rounded-full bg-gray-200 px-2.5 py-0.5 text-xs font-medium text-gray-700">закрыт</span>
           )}
           <span className="ml-auto">
-            {project.status === "ACTIVE" ? (
+            {!canManage ? null : project.status === "ACTIVE" ? (
               <form action={closeProject.bind(null, project.id)}>
                 <button
                   disabled={inFlight > 0}
@@ -148,7 +152,7 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
               </tbody>
             </table>
           )}
-          <details>
+          <details className={canEditEstimate ? "" : "hidden"}>
             <summary className="cursor-pointer text-sm font-medium text-indigo-600">
               {current ? "Изменить смету (новая версия)" : "+ Завести смету"}
             </summary>

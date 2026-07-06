@@ -8,6 +8,7 @@ import { StatusBadge, UrgencyBadge } from "@/components/StatusBadge";
 import { DELIVERABLE_LABELS, PAYMENT_TIMING_LABELS, ATTACHMENT_KIND_LABELS } from "@/lib/requests/status";
 import { ApproverPanel } from "./ApproverPanel";
 import { SubmitPanel } from "./SubmitPanel";
+import { ProjectPeek } from "@/components/ProjectPeek";
 
 const DECISION_LABELS: Record<string, string> = {
   APPROVED: "Одобрено",
@@ -101,7 +102,17 @@ export default async function RequestDetailPage({
         <Field label="Сумма" value={<span className="font-semibold">{formatTiyn(req.amount)}</span>} />
         <Field label="Срочность" value={<UrgencyBadge urgency={req.urgency} />} />
         <Field label="Желаемая дата оплаты" value={req.desiredPayDate ? req.desiredPayDate.toLocaleDateString("ru-RU") : "—"} />
-        {req.project && <Field label="Проект" value={`${req.project.client?.name ? req.project.client.name + " · " : ""}${req.project.name}`} />}
+        {req.project && (
+          <Field
+            label="Проект"
+            value={
+              <ProjectPeek projectId={req.project.id}>
+                {req.project.client?.name ? `${req.project.client.name} · ` : ""}
+                {req.project.name}
+              </ProjectPeek>
+            }
+          />
+        )}
         {req.recipient && <Field label={isBloggerLike ? "Блогер" : "Получатель"} value={req.recipient.name} />}
         {req.estimateLine && <Field label="Строка сметы" value={`${req.estimateLine.title} (план ${formatTiyn(req.estimateLine.plannedAmount)})`} />}
         {req.estimateLines.length > 1 && (

@@ -4,6 +4,7 @@ import { getRegisterRows, getTreasuryOverview, getCalendarData } from "@/lib/tre
 import { addToRegisterAction, removeFromRegisterAction } from "@/lib/treasury/actions";
 import { formatTiyn } from "@/lib/money";
 import { StatusBadge, UrgencyBadge } from "@/components/StatusBadge";
+import { ProjectPeek } from "@/components/ProjectPeek";
 
 export default async function TreasuryPage() {
   const user = await requireRole("TREASURER_CFO", "TREASURY_BOARD");
@@ -70,7 +71,17 @@ export default async function TreasuryPage() {
                         <span className="ml-2 text-xs text-amber-700" title="Проект с отрицательным балансом — клиент ещё не заплатил">⚠ можно притормозить</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-700">{r.expenseType.name}{r.project ? ` · ${r.project.name}` : ""}</td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {r.expenseType.name}
+                      {r.project && (
+                        <>
+                          {" · "}
+                          <ProjectPeek projectId={r.project.id} className="inline text-left text-gray-700 hover:text-indigo-600 hover:underline">
+                            {r.project.name}
+                          </ProjectPeek>
+                        </>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900">{formatTiyn(r.amount)}</td>
                     <td className="px-4 py-3">
                       {r.desiredPayDate ? (

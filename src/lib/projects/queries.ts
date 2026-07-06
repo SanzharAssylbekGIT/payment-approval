@@ -119,7 +119,8 @@ export async function getProjectDetailForUser(user: AuthenticatedUser, projectId
     return { id: r.id, name: r.name, planned: line?.plannedAmount ?? 0n, paid, isPaid: paid > 0n };
   });
 
-  const balanceAgg = await prisma.transaction.aggregate({ where: { projectId }, _sum: { amount: true } });
+  // Движения копилок (ledgerId) не входят в баланс проекта (DECISIONS §19).
+  const balanceAgg = await prisma.transaction.aggregate({ where: { projectId, ledgerId: null }, _sum: { amount: true } });
   const paidTotal = [...paidByRecipient.values()].reduce((s, v) => s + v, 0n);
   const cost = project.estimate?.currentVersion?.costAmount ?? 0n;
   const gross = project.estimate?.currentVersion?.clientPriceGross ?? 0n;

@@ -6,12 +6,15 @@ import { prisma } from "@/lib/db";
 import { requireUser } from "@/lib/auth/rbac";
 import { hasRole, canSeeEverything } from "@/lib/auth/permissions";
 import { writeAudit } from "@/lib/audit";
-import { parseTengeToTiyn } from "@/lib/money";
+import { parseTengeToTiyn, formatTiyn } from "@/lib/money";
 import { EstimateError, saveEstimateVersion, getScopedProject, type EstimateLineInput } from "@/lib/estimates/service";
 import { parseEstimateXlsx, type ParsedEstimateRow } from "@/lib/estimates/excel";
 import { createProjectNumbered } from "@/lib/projects/numbering";
 import { projectCode } from "@/lib/projects/code";
+import { projectScopeFilter } from "@/lib/projects/scope";
 import { transferVpRemainderOnClose, returnReserveOnReopen } from "@/lib/accounting/reserves";
+import { SERVICE_LABELS } from "@/lib/accounting/labels";
+import { DELIVERABLE_LABELS } from "@/lib/requests/status";
 import type { BloggerDeliverable } from "@prisma/client";
 
 export type DealState = { error?: string; ok?: boolean };
@@ -381,4 +384,150 @@ export async function reopenProject(id: string): Promise<void> {
   revalidatePath(`/projects/${id}`);
   revalidatePath("/accounting/projects");
   revalidatePath("/accounting/deposits");
+}
+
+// ============================================================================
+//  Попап «Статус проекта» (клик по названию проекта в заявках/реестрах)
+// ============================================================================
+
+export interface ProjectPeekPosition {
+  title: string;
+  option: string | null; // формат работ / опция блогера
+  planned: string;
+  reserve: string | null; // продакшн-резерв строки
+  paid: string | null; // null — позиция без получателя (категория)
+  pct: number | null; // % оплаты позиции (может быть > 100 при перевыплате)
+  isPaid: boolean;
+}
+
+export type ProjectPeekResult =
+  | { access: "none" }
+  // Вне скоупа §10: только «шапка», без денег сделки и получателей.
+  | { access: "limited"; code: string; name: string; clientName: string | null; serviceLabel: string; statusLabel: string }
+  | {
+      access: "full";
+      projectId: string;
+      code: string;
+      name: string;
+      clientName: string | null;
+      serviceLabel: string;
+      statusLabel: string;
+      ownerName: string | null;
+      pmName: string | null;
+      approvedAt: string | null;
+      completionAt: string | null;
+      hasEstimate: boolean;
+      price: string | null;
+      received: string;
+      receivedPct: number | null;
+      receivable: string | null;
+      cost: string | null;
+      margin: string | null;
+      marginPct: number | null; // от суммы без НДС, 1 знак
+      reserve: string | null; // продакшн-резерв (в депозит)
+      paidTotal: string;
+      paidCount: number;
+      recipientsTotal: number;
+      positions: ProjectPeekPosition[];
+      canOpenCard: boolean;
+    };
+
+const PROJECT_STATUS_RU: Record<string, string> = { ACTIVE: "активен", CLOSED: "закрыт", CANCELLED: "отменён" };
+
+// Сводка проекта для попапа. Конфиденциальность §10: полные детали — только
+// тем, кому проект виден по projectScopeFilter; остальным — «шапка» без денег.
+export async function peekProject(projectId: string): Promise<ProjectPeekResult> {
+  const user = await requireUser();
+
+  const project = await prisma.project.findFirst({
+    where: { id: projectId, entityId: user.entityId, ...projectScopeFilter(user) },
+    include: {
+      client: true,
+      owner: true,
+      projectManager: true,
+      estimate: { include: { currentVersion: { include: { lines: true } } } },
+      incomings: true,
+    },
+  });
+
+  if (!project) {
+    const basic = await prisma.project.findFirst({
+      where: { id: projectId, entityId: user.entityId },
+      include: { client: true },
+    });
+    if (!basic) return { access: "none" };
+    return {
+      access: "limited",
+      code: projectCode(basic.serviceType, basic.number),
+      name: basic.name,
+      clientName: basic.client?.name ?? null,
+      serviceLabel: SERVICE_LABELS[basic.serviceType],
+      statusLabel: PROJECT_STATUS_RU[basic.status] ?? basic.status,
+    };
+  }
+
+  const v = project.estimate?.currentVersion ?? null;
+  const gross = v?.clientPriceGross ?? 0n;
+  const net = v?.clientPriceNet ?? 0n;
+  const margin = v?.marginAmount ?? 0n;
+  const received = project.incomings.reduce((s, i) => s + i.amount, 0n);
+  const receivable = gross > received ? gross - received : 0n;
+
+  // Факт по получателям: выплаты (PAYOUT) по recipientId.
+  const payouts = await prisma.transaction.groupBy({
+    by: ["recipientId"],
+    where: { entityId: user.entityId, projectId: project.id, kind: "PAYOUT" },
+    _sum: { amount: true },
+  });
+  const paidByRecipient = new Map<string, bigint>();
+  let paidTotal = 0n;
+  for (const p of payouts) {
+    const paid = -(p._sum.amount ?? 0n);
+    paidTotal += paid;
+    if (p.recipientId) paidByRecipient.set(p.recipientId, paid);
+  }
+
+  const lines = v?.lines ?? [];
+  const positions: ProjectPeekPosition[] = lines.map((l) => {
+    const paid = l.recipientId ? (paidByRecipient.get(l.recipientId) ?? 0n) : null;
+    return {
+      title: l.title,
+      option: l.customDeliverable ?? (l.deliverables.length ? l.deliverables.map((d) => DELIVERABLE_LABELS[d]).join(", ") : null),
+      planned: formatTiyn(l.plannedAmount),
+      reserve: l.reserveAmount > 0n ? formatTiyn(l.reserveAmount) : null,
+      paid: paid != null ? formatTiyn(paid) : null,
+      pct: paid != null && l.plannedAmount > 0n ? Number((paid * 100n) / l.plannedAmount) : null,
+      isPaid: (paid ?? 0n) > 0n,
+    };
+  });
+  const recipientLines = lines.filter((l) => l.recipientId);
+  const paidCount = recipientLines.filter((l) => (paidByRecipient.get(l.recipientId!) ?? 0n) > 0n).length;
+
+  return {
+    access: "full",
+    projectId: project.id,
+    code: projectCode(project.serviceType, project.number),
+    name: project.name,
+    clientName: project.client?.name ?? null,
+    serviceLabel: SERVICE_LABELS[project.serviceType],
+    statusLabel: PROJECT_STATUS_RU[project.status] ?? project.status,
+    ownerName: project.owner?.fullName ?? null,
+    pmName: project.projectManager?.fullName ?? null,
+    approvedAt: project.realizationDate ? project.realizationDate.toLocaleDateString("ru-RU") : null,
+    completionAt: project.completionDate ? project.completionDate.toLocaleDateString("ru-RU") : null,
+    hasEstimate: !!v,
+    price: v ? formatTiyn(gross) : null,
+    received: formatTiyn(received),
+    receivedPct: gross > 0n ? Number((received * 100n) / gross) : null,
+    receivable: receivable > 0n ? formatTiyn(receivable) : null,
+    cost: v ? formatTiyn(v.costAmount) : null,
+    margin: v ? formatTiyn(margin) : null,
+    marginPct: net > 0n ? Number((margin * 1000n) / net) / 10 : null,
+    reserve: v && v.depositAmount > 0n ? formatTiyn(v.depositAmount) : null,
+    paidTotal: formatTiyn(paidTotal),
+    paidCount,
+    recipientsTotal: recipientLines.length,
+    positions,
+    canOpenCard: hasRole(user, "ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURY_BOARD", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT"),
+  };
 }

@@ -3,6 +3,7 @@ import { requireRole } from "@/lib/auth/rbac";
 import { prisma } from "@/lib/db";
 import { formatTiyn } from "@/lib/money";
 import { StatusBadge } from "@/components/StatusBadge";
+import { ProjectPeek } from "@/components/ProjectPeek";
 import { MarkPaidForm } from "./MarkPaidForm";
 
 export default async function PaymentsPage() {
@@ -59,7 +60,14 @@ export default async function PaymentsPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-700">
                       {r.expenseType.name}
-                      {r.project ? ` · ${r.project.name}` : ""}
+                      {r.project && (
+                        <>
+                          {" · "}
+                          <ProjectPeek projectId={r.project.id} className="inline text-left text-gray-700 hover:text-indigo-600 hover:underline">
+                            {r.project.name}
+                          </ProjectPeek>
+                        </>
+                      )}
                       {r.recipient ? ` → ${r.recipient.name}` : ""}
                     </td>
                     <td className="px-4 py-3 text-right font-medium text-gray-900">{formatTiyn(r.amount)}</td>
@@ -84,7 +92,17 @@ export default async function PaymentsPage() {
                     <td className="px-4 py-2.5">
                       <Link href={`/requests/${r.id}`} className="font-medium text-indigo-600 hover:underline">{r.number}</Link>
                     </td>
-                    <td className="px-4 py-2.5 text-gray-600">{r.expenseType.name}{r.project ? ` · ${r.project.name}` : ""}</td>
+                    <td className="px-4 py-2.5 text-gray-600">
+                      {r.expenseType.name}
+                      {r.project && (
+                        <>
+                          {" · "}
+                          <ProjectPeek projectId={r.project.id} className="inline text-left text-gray-600 hover:text-indigo-600 hover:underline">
+                            {r.project.name}
+                          </ProjectPeek>
+                        </>
+                      )}
+                    </td>
                     <td className="px-4 py-2.5 text-right font-medium text-gray-900">{formatTiyn(r.amount)}</td>
                     <td className="px-4 py-2.5"><StatusBadge status={r.status} /></td>
                   </tr>

@@ -3,6 +3,7 @@ import { requireUser } from "@/lib/auth/rbac";
 import { getMyRequests, getMyRequestStatusCounts } from "@/lib/requests/queries";
 import { formatTiyn } from "@/lib/money";
 import { StatusBadge, UrgencyBadge } from "@/components/StatusBadge";
+import { ProjectPeek } from "@/components/ProjectPeek";
 import { STATUS_LABELS } from "@/lib/requests/status";
 import type { RequestStatus } from "@prisma/client";
 
@@ -102,8 +103,10 @@ export default async function RequestsPage({
                     <td className="px-4 py-3 text-gray-700">
                       {r.project ? (
                         <span>
-                          {r.project.client?.name ? `${r.project.client.name} · ` : ""}
-                          {r.project.name}
+                          <ProjectPeek projectId={r.project.id} className="inline text-left text-gray-700 hover:text-indigo-600 hover:underline">
+                            {r.project.client?.name ? `${r.project.client.name} · ` : ""}
+                            {r.project.name}
+                          </ProjectPeek>
                           {r.recipient ? ` → ${r.recipient.name}` : ""}
                         </span>
                       ) : (

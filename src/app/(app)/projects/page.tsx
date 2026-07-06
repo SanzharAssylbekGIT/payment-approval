@@ -21,13 +21,22 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<{ tab?: string; arch?: string }>;
 }) {
-  const user = await requireRole("ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
+  const user = await requireRole("ACCOUNT_MANAGER", "PROJECT_MANAGER", "TREASURY_BOARD", "TREASURER_CFO", "ACCOUNTANT", "CHIEF_ACCOUNTANT");
   const sp = await searchParams;
-  const active = TABS.find((t) => t.key === sp.tab) ?? TABS[0];
+  const seeAll = canSeeEverything(user);
+
+  // Вкладка «Спецпроекты» видна только финансам и департаменту-исполнителю
+  // (§18) — остальным она по скоупу всегда пустая, поэтому не показываем вовсе.
+  const specType = await prisma.expenseType.findFirst({
+    where: { entityId: user.entityId, code: "SPEC_PROJECT", isActive: true },
+    select: { departmentId: true },
+  });
+  const specVisible = seeAll || (!!user.departmentId && user.departmentId === specType?.departmentId);
+  const tabs = TABS.filter((t) => t.service !== "SPEC_PROJECT" || specVisible);
+  const active = tabs.find((t) => t.key === sp.tab) ?? tabs[0];
   const showClosed = sp.arch === "1";
 
   const projects = await getProjectsByService(user, active.service, showClosed);
-  const seeAll = canSeeEverything(user);
 
   // Итоги по вкладке.
   const totals = projects.reduce(
@@ -43,16 +52,11 @@ export default async function ProjectsPage({
   // Блогеры/Продакшн/Ивенты — продажники (ACCOUNT_MANAGER) и финансы;
   // Спецпроекты — исполнитель направления (департамент вида расхода
   // SPEC_PROJECT, т.е. Айсулу) и финансы. Продажники спец НЕ создают.
-  let canCreate: boolean;
-  if (active.service === "SPEC_PROJECT") {
-    const specType = await prisma.expenseType.findFirst({
-      where: { entityId: user.entityId, code: "SPEC_PROJECT", isActive: true },
-      select: { departmentId: true },
-    });
-    canCreate = seeAll || (!!user.departmentId && user.departmentId === specType?.departmentId);
-  } else {
-    canCreate = seeAll || hasRole(user, "ACCOUNT_MANAGER");
-  }
+  // Коллегия (TREASURY_BOARD) смотрит, но не создаёт.
+  const canCreate =
+    active.service === "SPEC_PROJECT"
+      ? seeAll || (!!user.departmentId && user.departmentId === specType?.departmentId)
+      : seeAll || hasRole(user, "ACCOUNT_MANAGER");
 
   const [clientOptions, pmOptions, bloggerRows, ownerOptions, nextNumber] = await Promise.all([
     prisma.client.findMany({ where: { entityId: user.entityId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
@@ -101,7 +105,7 @@ export default async function ProjectsPage({
 
       {/* Вкладки видов услуг */}
       <div className="flex flex-wrap items-center gap-2">
-        {TABS.map((t) => (
+        {tabs.map((t) => (
           <Link
             key={t.key}
             href={`/projects?tab=${t.key}${showClosed ? "&arch=1" : ""}`}
