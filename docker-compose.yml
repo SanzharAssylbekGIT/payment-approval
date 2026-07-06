@@ -33,11 +33,19 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-bt}:${POSTGRES_PASSWORD:-bt_dev_password}@db:5432/${POSTGRES_DB:-bt_payments}?schema=public
+      DIRECT_URL: postgresql://${POSTGRES_USER:-bt}:${POSTGRES_PASSWORD:-bt_dev_password}@db:5432/${POSTGRES_DB:-bt_payments}?schema=public
+      # Обязателен в проде: длинная случайная строка (подпись сессионных cookie).
+      SESSION_SECRET: ${SESSION_SECRET:?SESSION_SECRET обязателен — задайте в .env}
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-credentials}
       NODE_ENV: production
     ports:
       - "3000:3000"
+    volumes:
+      # Файлы-вложения заявок (счета/договоры/акты) — переживают пересборку образа.
+      - bt_uploads:/app/uploads
     profiles:
       - deploy # не поднимается в dev; `docker compose --profile deploy up`
 
 volumes:
   bt_pgdata:
+  bt_uploads:
