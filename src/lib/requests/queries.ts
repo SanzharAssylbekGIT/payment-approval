@@ -127,6 +127,27 @@ export async function getApprovalQueue(user: AuthenticatedUser) {
   });
 }
 
+// История решений согласующего: что я одобрил/отклонил/вернул и где эти
+// заявки сейчас. После решения заявка уходит из очереди дальше по маршруту —
+// здесь она остаётся видимой с текущим статусом.
+export async function getApprovalHistory(user: AuthenticatedUser, take = 50) {
+  return prisma.requestApproval.findMany({
+    where: { approverId: user.id, request: { entityId: user.entityId } },
+    include: {
+      request: {
+        include: {
+          expenseType: true,
+          project: { include: { client: true } },
+          recipient: true,
+          createdBy: true,
+        },
+      },
+    },
+    orderBy: { decidedAt: "desc" },
+    take,
+  });
+}
+
 // Одна заявка с проверкой доступа: создатель, согласующий на маршруте, или
 // тот, кто «видит всё». Иначе null.
 export async function getRequestForUser(user: AuthenticatedUser, id: string) {
