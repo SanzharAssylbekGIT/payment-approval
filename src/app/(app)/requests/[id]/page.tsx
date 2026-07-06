@@ -180,33 +180,44 @@ export default async function RequestDetailPage({
         </div>
       )}
 
-      {/* Маршрут согласования */}
-      {steps.length > 0 && (
-        <div className="rounded-xl border border-gray-200 bg-white p-6">
-          <h2 className="mb-3 text-sm font-medium text-gray-700">Маршрут согласования</h2>
-          <ol className="space-y-2">
-            {steps.map((s) => {
-              const done = isApprovedOrLater || (req.status === "PENDING_APPROVAL" && s.order < req.currentStepOrder);
-              const current = req.status === "PENDING_APPROVAL" && s.order === req.currentStepOrder;
-              return (
-                <li key={s.id} className="flex items-center gap-3 text-sm">
-                  <span
-                    className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
-                      done ? "bg-green-100 text-green-700" : current ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-400"
-                    }`}
-                  >
-                    {done ? "✓" : s.order}
-                  </span>
-                  <span className={current ? "font-medium text-gray-900" : "text-gray-600"}>
-                    {s.approver.fullName}
-                  </span>
-                  {current && <span className="text-xs text-amber-600">— сейчас здесь</span>}
-                </li>
-              );
-            })}
-          </ol>
-        </div>
-      )}
+      {/* Маршрут согласования. «✓» — только за реальное решение этой ступени:
+          маршрут показывает ТЕКУЩИЙ конфиг, и у старых заявок могут быть
+          ступени, добавленные позже их согласования (§21) — им «✓» не рисуем. */}
+      {steps.length > 0 && (() => {
+        const approvedStepIds = new Set(req.approvals.filter((a) => a.decision === "APPROVED" && a.stepId).map((a) => a.stepId as string));
+        const approvedByLegacy = new Set(req.approvals.filter((a) => a.decision === "APPROVED" && !a.stepId).map((a) => a.approverId));
+        return (
+          <div className="rounded-xl border border-gray-200 bg-white p-6">
+            <h2 className="mb-3 text-sm font-medium text-gray-700">Маршрут согласования</h2>
+            <ol className="space-y-2">
+              {steps.map((s) => {
+                const decided = approvedStepIds.has(s.id) || approvedByLegacy.has(s.approverId);
+                const done = req.status === "PENDING_APPROVAL" ? s.order < req.currentStepOrder : decided;
+                const current = req.status === "PENDING_APPROVAL" && s.order === req.currentStepOrder;
+                // Одобрена/дальше, а решения этой ступени нет — ступень появилась
+                // в маршруте позже согласования заявки, она не участвовала.
+                const addedLater = isApprovedOrLater && !decided;
+                return (
+                  <li key={s.id} className="flex items-center gap-3 text-sm">
+                    <span
+                      className={`flex h-6 w-6 items-center justify-center rounded-full text-xs ${
+                        done ? "bg-green-100 text-green-700" : current ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-400"
+                      }`}
+                    >
+                      {done ? "✓" : addedLater ? "–" : s.order}
+                    </span>
+                    <span className={current ? "font-medium text-gray-900" : addedLater ? "text-gray-400" : "text-gray-600"}>
+                      {s.approver.fullName}
+                    </span>
+                    {current && <span className="text-xs text-amber-600">— сейчас здесь</span>}
+                    {addedLater && <span className="text-xs text-gray-400">— ступень добавлена позже, не участвовала</span>}
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        );
+      })()}
 
       {/* Решения по заявке */}
       {req.approvals.length > 0 && (
