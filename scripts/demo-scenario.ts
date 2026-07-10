@@ -38,7 +38,7 @@ async function main() {
   const gulzira = await u("gulzira.dastanbek@bravetalents.com");
   const rakhima = await u("rakhima.turzhanova@bravetalents.com");
   const ainur = await u("ainur.abduvali@bravetalents.com");
-  const zhadyra = await u("zhadyra.kasymbek@bravetalents.com");
+  const zhadyra = await u("zhadyra.kassymbek@bravetalents.com");
   const cfo = await u("sanzhar.assylbek@bravetalents.com");
   const accountant = await u("symbat.otesh@bravetalents.com");
   const officeMgr = await u("office.manager@bravetalents.com");

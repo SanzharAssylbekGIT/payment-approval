@@ -50,7 +50,7 @@ const USERS: {
   roles: RoleName[];
 }[] = [
   { key: "sanzhar", email: "sanzhar.assylbek@bravetalents.com", fullName: "Санжар Асылбек", position: "CFO / Управляющий директор", dept: "MANAGEMENT", roles: [RoleName.TREASURER_CFO, RoleName.TREASURY_BOARD, RoleName.APPROVER, RoleName.ADMIN] },
-  { key: "zhadyra", email: "zhadyra.kasymbek@bravetalents.com", fullName: "Жадыра Касымбек", position: "Главный бухгалтер", dept: "FINANCE", roles: [RoleName.CHIEF_ACCOUNTANT, RoleName.TREASURY_BOARD, RoleName.APPROVER] },
+  { key: "zhadyra", email: "zhadyra.kassymbek@bravetalents.com", fullName: "Жадыра Касымбек", position: "Главный бухгалтер", dept: "FINANCE", roles: [RoleName.CHIEF_ACCOUNTANT, RoleName.TREASURY_BOARD, RoleName.APPROVER] },
   { key: "symbat", email: "symbat.otesh@bravetalents.com", fullName: "Сымбат Отеш", position: "Бухгалтер", dept: "FINANCE", roles: [RoleName.ACCOUNTANT, RoleName.REQUESTER] },
   { key: "elnura", email: "elnura.ordabaeva@bravetalents.com", fullName: "Эльнура Ордабаева", position: "Бухгалтер", dept: "FINANCE", roles: [RoleName.ACCOUNTANT, RoleName.REQUESTER] },
   { key: "ainur", email: "ainur.abduvali@bravetalents.com", fullName: "Айнур Абдували", position: "Операционный директор", dept: "MANAGEMENT", roles: [RoleName.APPROVER, RoleName.TREASURY_BOARD] },

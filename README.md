@@ -32,7 +32,7 @@ npm run dev            # http://localhost:3000
 | E-mail | Кто | Роли |
 |---|---|---|
 | sanzhar.assylbek@bravetalents.com | Санжар (CFO) | видит всё, админ |
-| zhadyra.kasymbek@bravetalents.com | Жадыра (гл. бух) | согласует ЗП/дивиденды, коллегия |
+| zhadyra.kassymbek@bravetalents.com | Жадыра (гл. бух) | согласует ЗП/дивиденды, коллегия |
 | ainur.abduvali@bravetalents.com | Айнур (опер. директор) | согласующий, коллегия |
 | rakhima.turzhanova@bravetalents.com | Рахима | согласует блогеров |
 | blogger.staff@bravetalents.com | Сотрудник блог-отдела | заявитель |
